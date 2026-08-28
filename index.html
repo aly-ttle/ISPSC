@@ -175,11 +175,11 @@
           >
         </div>
         <div class="workspace-switcher">
-          <span class="avatar avatar-lime" id="sidebarAvatar">JD</span>
+          <span class="avatar avatar-lime" id="sidebarAvatar">--</span>
           <span
-            ><strong id="sidebarName">Jamie Dela Cruz</strong>
+            ><strong id="sidebarName">User Account</strong>
             <small id="sidebarRole"
-              >OJT Student · ISPSC Tagudin Campus</small
+              >ISPSC Tagudin Campus</small
             ></span
           >
           <button
@@ -199,7 +199,7 @@
             <span class="nav-icon">♟</span>Application
           </button>
           <button class="nav-item" data-view="requirements">
-            <span class="nav-icon">✓</span>Requirements <em>2</em>
+            <span class="nav-icon">✓</span>Requirements
           </button>
           <button class="nav-item" data-view="attendance">
             <span class="nav-icon">◷</span>Attendance
@@ -246,41 +246,56 @@
               id="notificationButton"
               aria-label="Notifications"
             >
-              <span>♡</span><i></i>
+              <span>♡</span>
             </button>
-            <button class="top-profile" id="topProfileButton">
-              <span class="avatar avatar-coral" id="topAvatar">JD</span>
-              <span class="top-profile-name" id="topProfileName"
-                >Jamie Dela Cruz</span
-              ><span>⌄</span>
-            </button>
+            <div class="user-pill" id="topProfileButton">
+              <span class="avatar avatar-lime" id="topAvatar">--</span>
+              <span id="topProfileName">User Account</span>
+            </div>
           </div>
         </header>
-        <div id="viewContainer"></div>
+
+        <section class="view-container" id="viewContainer"></section>
       </main>
     </div>
 
-    <div class="toast" id="toast" role="status"></div>
-
-    <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true">
-      <section
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modalTitle"
-      >
-        <button class="modal-close" id="modalClose" aria-label="Close">×</button>
-        <span class="modal-kicker">QUICK ACTION</span>
-        <h2 id="modalTitle">Update profile</h2>
-        <p id="modalDescription">Keep your student details current.</p>
-        <form id="modalForm">
-          <div id="modalFields"></div>
-          <button class="primary-button" type="submit">
-            <span id="modalSubmitLabel">Save changes</span> <span>→</span>
+    <!-- REUSABLE MODAL DIALOG -->
+    <div
+      class="modal-backdrop"
+      id="modalBackdrop"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h3 id="modalTitle">Modal action</h3>
+            <p id="modalDescription">Complete the details below.</p>
+          </div>
+          <button class="modal-close" id="modalClose" aria-label="Close dialog">
+            ✕
           </button>
+        </div>
+        <form id="modalForm">
+          <div class="modal-body" id="modalFields"></div>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="secondary-button"
+              onclick="closeModal()"
+            >
+              Cancel
+            </button>
+            <button type="submit" class="primary-button" id="modalSubmit">
+              <span id="modalSubmitLabel">Save</span> <span>→</span>
+            </button>
+          </div>
         </form>
-      </section>
+      </div>
     </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="app.js"></script>
   </body>
 </html>
