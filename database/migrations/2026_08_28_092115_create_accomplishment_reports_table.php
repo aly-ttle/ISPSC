@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('period')->nullable();
             $table->text('summary')->nullable();
             $table->string('file_path')->nullable();
-            $table->enum('status', ['Draft', 'Submitted', 'Approved', 'Revision'])->default('Draft');
+            $table->enum('status', ['Draft', 'Submitted', 'Pending review', 'Approved', 'Revision'])->default('Draft');
             $table->text('adviser_remarks')->nullable();
             $table->timestamps();
         });
