@@ -10,10 +10,12 @@
   const state = {
     currentUser: null,
     currentRole: null,
-    currentView: "overview",
+    currentView: "application",
     practicumData: {},
     isLoading: false,
     activeSubTab: "all",
+    selectedDepartmentFilter: "all",
+    lastRequirementSubmission: null,
   };
 
   // DOM Elements Cache
@@ -22,6 +24,7 @@
     portalContainer: document.getElementById("appShell"),
     loginCard: document.getElementById("signInContainer"),
     registerCard: document.getElementById("signUpContainer"),
+    authTabs: document.querySelector(".auth-tabs"),
     tabSignIn: document.getElementById("tabSignIn"),
     tabSignUp: document.getElementById("tabSignUp"),
     switchToSignUp: document.getElementById("switchToSignUp"),
@@ -31,11 +34,25 @@
     loginError: document.getElementById("loginError"),
     signUpError: document.getElementById("signUpError"),
     forgotPasswordBtn: document.getElementById("forgotPasswordBtn"),
+    forgotPasswordContainer: document.getElementById("forgotPasswordContainer"),
+    otpVerifyContainer: document.getElementById("otpVerifyContainer"),
+    resetPasswordContainer: document.getElementById("resetPasswordContainer"),
+    forgotPasswordForm: document.getElementById("forgotPasswordForm"),
+    otpVerifyForm: document.getElementById("otpVerifyForm"),
+    resetPasswordForm: document.getElementById("resetPasswordForm"),
+    forgotError: document.getElementById("forgotError"),
+    otpError: document.getElementById("otpError"),
+    resetError: document.getElementById("resetError"),
+    forgotBackToLoginBtn: document.getElementById("forgotBackToLoginBtn"),
+    otpBackToForgotBtn: document.getElementById("otpBackToForgotBtn"),
+    resetBackToLoginBtn: document.getElementById("resetBackToLoginBtn"),
+    resendOtpBtn: document.getElementById("resendOtpBtn"),
     helpModalBackdrop: document.getElementById("helpModalBackdrop"),
     helpModalClose: document.getElementById("helpModalClose"),
     helpModalConfirmBtn: document.getElementById("helpModalConfirmBtn"),
     toggleLoginPassword: document.getElementById("toggleLoginPassword"),
     toggleRegPassword: document.getElementById("toggleRegPassword"),
+    toggleRegConfirmPassword: document.getElementById("toggleRegConfirmPassword"),
     btnLogout: document.getElementById("signOut"),
     btnSidebarToggle: document.getElementById("mobileMenu"),
     sidebar: document.getElementById("sidebar"),
@@ -76,11 +93,12 @@
   // API helper with error handling and Laravel validation message extraction
   async function apiRequest(endpoint, method = "GET", body = null) {
     const headers = {
-      "Content-Type": "application/json",
       Accept: "application/json",
       "X-CSRF-TOKEN": getCsrfToken(),
       "X-Requested-With": "XMLHttpRequest",
     };
+
+    if (!(body instanceof FormData)) headers["Content-Type"] = "application/json";
 
     const options = {
       method,
@@ -88,7 +106,7 @@
     };
 
     if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
-      options.body = JSON.stringify(body);
+      options.body = body instanceof FormData ? body : JSON.stringify(body);
     }
 
     try {
@@ -150,6 +168,7 @@
   async function initApp() {
     setupEventListeners();
     await checkAuthSession();
+    openResetLink();
   }
 
   async function checkAuthSession() {
@@ -179,7 +198,7 @@
         state.currentView = "admin-users";
         break;
       default:
-        state.currentView = "overview";
+        state.currentView = "application";
         break;
     }
 
@@ -251,7 +270,6 @@
 
   const navConfigurations = {
     student: [
-      { id: "overview", label: "Dashboard Overview", icon: "&#9635;" },
       { id: "application", label: "Campus Placement Details", icon: "&#128188;" },
       { id: "requirements", label: "Clearance Documents", icon: "&#128196;" },
       { id: "attendance", label: "Daily Time Record (DTR)", icon: "&#128197;" },
@@ -262,7 +280,8 @@
       { id: "evaluation", label: "Workplace Appraisal", icon: "&#9734;" },
     ],
     supervisor: [
-      { id: "supervisor-students", label: "Trainee Roster & Actions", icon: "&#128101;" },
+      { id: "supervisor-students", label: "Trainees & Department Approval", icon: "&#128101;" },
+      { id: "supervisor-eval-docs", label: "Evaluate Trainee Documents", icon: "&#128196;" },
       { id: "attendance-mgmt", label: "Verify Attendance (DTR)", icon: "&#128197;" },
       { id: "tasks-mgmt", label: "Assigned Work Tasks", icon: "&#9745;" },
       { id: "journal-mgmt", label: "Review Daily Journals", icon: "&#9998;" },
@@ -282,6 +301,19 @@
     ],
   };
 
+  
+  function openMobileSidebar() {
+    if (el.sidebar) el.sidebar.classList.add("open");
+    if (el.sidebarBackdrop) el.sidebarBackdrop.classList.add("open");
+    if (window.innerWidth <= 900) document.body.style.overflow = "hidden";
+  }
+
+  function closeMobileSidebar() {
+    if (el.sidebar) el.sidebar.classList.remove("open");
+    if (el.sidebarBackdrop) el.sidebarBackdrop.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
   function renderNavigation() {
     if (!el.sidebarNav || !state.currentRole) return;
     const items = navConfigurations[state.currentRole] || [];
@@ -291,7 +323,7 @@
         (item) => `
         <button class="nav-item ${state.currentView === item.id ? "active" : ""}" data-view="${item.id}" type="button">
           <span class="nav-icon" aria-hidden="true">${item.icon}</span>
-          <span class="nav-label">${item.label}</span>
+          <span class="nav-text">${item.label}</span>
         </button>
       `
       )
@@ -302,8 +334,8 @@
         state.currentView = btn.dataset.view;
         renderNavigation();
         renderCurrentView();
-        if (window.innerWidth <= 840 && el.sidebar && el.sidebar.classList.contains("open")) {
-          el.sidebar.classList.remove("open");
+        if (window.innerWidth <= 900) {
+          closeMobileSidebar();
         }
       });
     });
@@ -320,20 +352,23 @@
       attendance: "Daily Time Record & Biometric Logs",
       tasks: "Department Assigned Tasks & Deliverables",
       journal: "OJT Reflection Journal",
-      "supervisor-students": "Campus Department Trainee Workspace",
-      "adviser-students": "Student Advisees Roster & Compliance",
-      "admin-users": "System User Directory & Roles",
-      "admin-placements": "Campus Departments & Placement Management",
+      "supervisor-students": "Trainees & Department Approval",
+      "supervisor-eval-docs": "Evaluate Trainee Clearance Documents",
       "attendance-mgmt": "Daily Time Record (DTR) Verification",
       "tasks-mgmt": "Workplace Tasks & Project Deliverables",
-      "journal-mgmt": "Review Trainee Journals",
+      "journal-mgmt": "Review Trainee Reflection Journals",
+      "feedback-mgmt": "Supervisory Mentorship & Coaching",
+      "eval-mgmt": "Midterm & Final Workplace Evaluation",
+      "adviser-students": "Student Advisees Roster & Compliance",
+      "requirements-mgmt": "Verify Clearance Documents",
+      "reports-mgmt": "Accomplishment Reports Verification",
+      "adviser-appraisal": "Student Workplace Appraisals",
+      "admin-users": "System User Directory & Roles",
+      "admin-placements": "Campus Departments & Placement Management",
+      "admin-logs": "Institutional Audit Logs",
       reports: "Accomplishment Reports",
-      "reports-mgmt": "Verify Accomplishment Reports",
-      "requirements-mgmt": "Verify Student Requirements",
       feedback: "Supervisor Performance Feedback",
-      "feedback-mgmt": "Submit Coaching Feedback",
       evaluation: "Midterm & Final Workplace Evaluation",
-      "eval-mgmt": "Evaluate Trainee Performance",
     };
 
     if (el.breadcrumbCurrent) {
@@ -370,7 +405,7 @@
           renderStudentEvaluation();
           break;
         default:
-          renderStudentOverview();
+          renderStudentApplication();
       }
     } else if (role === "supervisor") {
       renderSupervisorViews(view);
@@ -391,6 +426,7 @@
     const target = 480;
     const remaining = Math.max(0, target - hours);
     const progressPct = Math.min(100, Math.round((hours / target) * 100));
+    const app = d.application;
 
     el.viewContainer.innerHTML = `
       <div class="page">
@@ -404,6 +440,62 @@
             <span aria-hidden="true">&#128197;</span> ${new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
           </div>
         </div>
+
+        ${
+          app
+            ? `
+          <div class="panel" style="margin-bottom:20px; border-left:4px solid ${app.status === "Active" ? "#4b6607" : "#d97706"}; background:${app.status === "Active" ? "#f9fcf6" : "#fffbeb"};">
+            <div class="panel-header" style="padding-bottom:10px;">
+              <div>
+                <span class="eyebrow" style="color:${app.status === "Active" ? "#4b6607" : "#b45309"}; font-weight:700;">
+                  ${app.status === "Active" ? "&#10003; Official Department Placement Approved" : "&#9888; Campus Department Placement Assigned &bull; Action Required"}
+                </span>
+                <h3 style="margin:4px 0 2px; font-size:16px;">${escapeHtml(app.company)} &bull; ${escapeHtml(app.department)}</h3>
+                <p style="margin:0; font-size:13px; color:#4a5b60;">
+                  Designated Supervisor: <strong>${escapeHtml(app.supervisor)}</strong> ${app.supervisorEmail ? `(${escapeHtml(app.supervisorEmail)})` : ""}
+                </p>
+              </div>
+              <span class="status ${app.status === "Active" ? "status-green" : "status-yellow"}" style="font-size:12px;">
+                ${app.status === "Active" ? "&#10003; Approved" : "Pending Supervisor Approval"}
+              </span>
+            </div>
+            ${
+              app.notes
+                ? `<div style="font-size:12.5px; color:#53676e; background:rgba(255,255,255,0.7); padding:8px 12px; border-radius:6px; margin:6px 0 12px;">
+                    <strong>Directives / Notes:</strong> ${escapeHtml(app.notes)}
+                  </div>`
+                : ""
+            }
+            ${
+              app.status !== "Active"
+                ? `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding-top:4px;">
+                    <p style="margin:0; font-size:12.5px; color:#92400e;">
+                      Please submit your documentary requirements (Endorsement Form, Parent Consent, Medical Clearance) to your Department Supervisor for official approval.
+                    </p>
+                    <button class="primary-button" id="btnOverviewSubmitDocs" style="padding:6px 14px; font-size:12px;" type="button">
+                      &#128196; Submit Clearance Documents
+                    </button>
+                  </div>`
+                : `<div style="display:flex; justify-content:flex-end;">
+                    <button class="secondary-button" id="btnOverviewViewPlacement" style="padding:5px 12px; font-size:12px;" type="button">
+                      View Full Placement Details &rarr;
+                    </button>
+                  </div>`
+            }
+          </div>
+        `
+            : `
+          <div class="panel" style="margin-bottom:20px; border-left:4px solid #3b82f6; background:#eff6ff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <div>
+                <h4 style="margin:0 0 4px; color:#1e40af;">Awaiting Campus Department Assignment</h4>
+                <p style="margin:0; font-size:13px; color:#3b82f6;">Your OJT Faculty Adviser will assign your host campus department and supervisor.</p>
+              </div>
+              <button class="secondary-button" id="btnOverviewViewPlacement" style="padding:6px 12px; font-size:12px;" type="button">Placement Details</button>
+            </div>
+          </div>
+        `
+        }
 
         <div class="hero-strip" role="region" aria-label="Practicum Completion Status">
           <div>
@@ -494,7 +586,7 @@
                             (log) => `
                         <tr>
                           <td><strong>${escapeHtml(log.date)}</strong></td>
-                          <td>${escapeHtml(log.schedule)} (${escapeHtml(log.timeIn)} – ${escapeHtml(log.timeOut)})</td>
+                          <td>${escapeHtml(log.schedule)} (${escapeHtml(log.timeIn)} &ndash; ${escapeHtml(log.timeOut)})</td>
                           <td><span class="score-badge">${escapeHtml(log.total)}</span></td>
                           <td><span class="status status-green">&#10003; ${escapeHtml(log.status)}</span></td>
                         </tr>
@@ -518,18 +610,18 @@
             <div class="task-list">
               ${
                 (d.tasks || []).length === 0
-                  ? '<p style="color:#6c7b80; font-size:12.5px; text-align:center; padding:20px 0;">No active tasks pending. Tasks will appear here once assigned by your department supervisor.</p>'
+                  ? '<div style="text-align:center; padding:20px; color:#6c7b80;">No tasks assigned yet.</div>'
                   : (d.tasks || [])
                       .slice(0, 4)
                       .map(
-                        (task) => `
-                    <div class="task-row">
-                      <input type="checkbox" class="task-check" data-id="${task.id}" ${task.done ? "checked" : ""} aria-label="Mark task ${escapeHtml(task.title)} as complete" />
-                      <div>
-                        <strong style="${task.done ? "text-decoration:line-through; color:#7d8c91;" : ""}">${escapeHtml(task.title)}</strong>
-                        <small>${escapeHtml(task.meta)}</small>
+                        (t) => `
+                    <div class="task-item ${t.done ? "task-done" : ""}">
+                      <input type="checkbox" class="task-check" data-id="${t.id}" ${t.done ? "checked" : ""} aria-label="Mark task done" />
+                      <div class="task-content">
+                        <strong>${escapeHtml(t.title)}</strong>
+                        <p>${escapeHtml(t.details || "")}</p>
+                        <span class="task-due">Due: ${escapeHtml(t.due)} &bull; ${escapeHtml(t.meta || "Department Task")}</span>
                       </div>
-                      <span class="task-due">${escapeHtml(task.due)}</span>
                     </div>
                   `
                       )
@@ -541,7 +633,19 @@
       </div>
     `;
 
-    // Hook quick actions
+    // Hook overview buttons
+    document.getElementById("btnOverviewSubmitDocs")?.addEventListener("click", () => {
+      state.currentView = "requirements";
+      renderNavigation();
+      renderCurrentView();
+    });
+
+    document.getElementById("btnOverviewViewPlacement")?.addEventListener("click", () => {
+      state.currentView = "application";
+      renderNavigation();
+      renderCurrentView();
+    });
+
     document.getElementById("qaAttendance")?.addEventListener("click", () => openModal("attendance"));
     document.getElementById("qaJournal")?.addEventListener("click", () => openModal("journal"));
     document.getElementById("qaTasks")?.addEventListener("click", () => {
@@ -550,6 +654,7 @@
       renderCurrentView();
     });
     document.getElementById("qaReport")?.addEventListener("click", () => openModal("report"));
+
     document.getElementById("btnViewAllAttendance")?.addEventListener("click", () => {
       state.currentView = "attendance";
       renderNavigation();
@@ -580,11 +685,13 @@
       <div class="page">
         <div class="page-intro">
           <div>
-            <p class="eyebrow">Practicum Placement Record</p>
+            <p class="eyebrow">Institutional Practicum Record &bull; Read-Only</p>
             <h1 class="page-title">Campus Placement Details</h1>
-            <p>Your official in-campus department endorsement and designated supervisor assignment.</p>
+            <p>Official in-campus department endorsement and designated supervisor assignment recorded by the OJT Faculty Adviser.</p>
           </div>
-          <button class="primary-button" id="btnEditPlacement" type="button">&#9998; Update Placement Info</button>
+          <div class="date-chip" style="background:#eef6e8; border:1px solid #cce2bf; color:#2e4402; font-weight:600; font-size:12px;">
+            &#128274; Read-Only (Managed by OJT Adviser)
+          </div>
         </div>
 
         <div class="panel">
@@ -593,8 +700,8 @@
               <h3>Assigned Campus Department & Supervisor</h3>
               <p>Official placement details recorded with the ISPSC OJT Office</p>
             </div>
-            <span class="status ${app && app.status === "Active" ? "status-green" : "status-yellow"}">
-              &#10003; ${app ? escapeHtml(app.status) : "Not Configured"}
+            <span class="status ${app && app.status === "Active" ? "status-green" : app ? "status-yellow" : "status-coral"}">
+              ${app ? (app.status === "Active" ? "&#10003; Approved" : "Pending Supervisor Approval") : "Awaiting Adviser Assignment"}
             </span>
           </div>
 
@@ -603,12 +710,12 @@
               ? `
             <div class="detail-grid">
               <div class="detail-item">
-                <span class="detail-label">Placement Reference</span>
+                <span class="detail-label">Placement Reference ID</span>
                 <span class="detail-value"><strong>${escapeHtml(app.id)}</strong></span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Academic Period</span>
-                <span class="detail-value">${escapeHtml(app.period)}</span>
+                <span class="detail-value">${escapeHtml(app.period || "AY 2025–2026")}</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Assigned Campus Department / Office</span>
@@ -620,7 +727,7 @@
               </div>
               <div class="detail-item">
                 <span class="detail-label">Campus Department Supervisor</span>
-                <span class="detail-value">${escapeHtml(app.supervisor)}</span>
+                <span class="detail-value"><strong>${escapeHtml(app.supervisor)}</strong></span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Supervisor Institutional Email</span>
@@ -628,18 +735,43 @@
               </div>
               <div class="detail-item">
                 <span class="detail-label">Authorized Shift Hours</span>
-                <span class="detail-value">${escapeHtml(app.officeHours)}</span>
+                <span class="detail-value">${escapeHtml(app.officeHours || "8:00 AM – 5:00 PM (Mon–Fri)")}</span>
               </div>
               <div class="detail-item">
-                <span class="detail-label">Date Submitted</span>
+                <span class="detail-label">Date Assigned / Endorsed</span>
                 <span class="detail-value">${escapeHtml(app.dateSubmitted)}</span>
               </div>
             </div>
+
+            ${
+              app.notes
+                ? `<div style="margin-top:16px; padding:12px 14px; background:#f5f8fa; border:1px solid #d5e1e6; border-radius:8px; font-size:13px; color:#3b4e54;">
+                    <strong>Adviser Directives & Placement Notes:</strong><br />
+                    ${escapeHtml(app.notes)}
+                  </div>`
+                : ""
+            }
+
+            <div style="margin-top:20px; padding-top:14px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <p style="margin:0; font-size:12px; color:var(--muted);">
+                &bull; Note: Department assignments are configured and verified exclusively by your OJT Faculty Adviser. If you need modifications, please consult your adviser.
+              </p>
+              ${
+                app.status !== "Active"
+                  ? `<button class="primary-button" id="btnPlacementSubmitDocs" style="padding:6px 14px; font-size:12px;" type="button">
+                      &#128196; Submit Clearance Documents
+                    </button>`
+                  : ""
+              }
+            </div>
           `
               : `
-            <div style="text-align:center; padding:30px; color:#6c7b80;">
-              <p>No campus placement details found. Please submit your assigned department info.</p>
-              <button class="primary-button" id="btnCreatePlacement" style="margin-top:10px;" type="button">Submit Placement Info</button>
+            <div style="text-align:center; padding:36px 20px; color:#6c7b80;">
+              <div style="font-size:32px; margin-bottom:10px;">&#127970;</div>
+              <h4 style="margin:0 0 6px; color:#17212b;">Awaiting Official Campus Department Assignment</h4>
+              <p style="margin:0 auto; max-width:440px; font-size:13px; line-height:1.5;">
+                Your OJT Faculty Adviser is currently assigning your host campus department, designated unit, and supervisor. Your official placement details will appear here once assigned.
+              </p>
             </div>
           `
           }
@@ -647,14 +779,16 @@
       </div>
     `;
 
-    const editBtn = document.getElementById("btnEditPlacement");
-    const createBtn = document.getElementById("btnCreatePlacement");
-    if (editBtn) editBtn.addEventListener("click", () => openModal("placement"));
-    if (createBtn) createBtn.addEventListener("click", () => openModal("placement"));
+    document.getElementById("btnPlacementSubmitDocs")?.addEventListener("click", () => {
+      state.currentView = "requirements";
+      renderNavigation();
+      renderCurrentView();
+    });
   }
 
   function renderStudentRequirements() {
     const reqs = state.practicumData.requirements || [];
+    const submission = state.lastRequirementSubmission;
 
     el.viewContainer.innerHTML = `
       <div class="page">
@@ -662,10 +796,17 @@
           <div>
             <p class="eyebrow">Clearance & Compliance</p>
             <h1 class="page-title">Documentary Requirements</h1>
-            <p>Institutional clearances verified by your OJT Faculty Adviser.</p>
+            <p>Institutional clearances verified by your OJT Faculty Adviser and Department Supervisor.</p>
           </div>
           <button class="primary-button" id="btnUploadReq" type="button">&#128196; Upload Requirement</button>
         </div>
+
+        ${submission ? `
+          <div class="submission-success-banner" role="status">
+            <strong>Document submitted successfully.</strong>
+            <span>${escapeHtml(submission.name)} is now waiting for Supervisor / Adviser review.</span>
+          </div>
+        ` : ""}
 
         <div class="panel">
           <div class="panel-header">
@@ -694,7 +835,7 @@
                 ${reqs
                   .map(
                     (r) => `
-                  <tr>
+                  <tr class="${submission && r.name === submission.name && r.status === "Pending review" ? "requirement-submitted-row" : ""}">
                     <td><strong>${escapeHtml(r.name)}</strong></td>
                     <td>${r.mandatory ? '<span class="status status-yellow">Mandatory</span>' : '<span class="status status-blue">Optional</span>'}</td>
                     <td><span class="status ${r.status === "Approved" ? "status-green" : "status-yellow"}">${r.status === "Approved" ? "&#10003; " : ""}${escapeHtml(r.status)}</span></td>
@@ -1108,165 +1249,660 @@
   }
 
   // =========================================================================
-  // VIEW RENDERERS: SUPERVISOR
+  // VIEW RENDERERS: SUPERVISOR (STRICTLY SCOPED TO SUPERVISOR'S DEPARTMENT)
   // =========================================================================
 
   function renderSupervisorViews(view) {
     const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
     const studentReqs = state.practicumData.studentRequirements || [];
+    const attendances = state.practicumData.attendanceLogs || [];
+    const tasks = state.practicumData.tasks || [];
+    const journals = state.practicumData.journals || [];
+    const feedbacks = state.practicumData.feedbacks || [];
+    const evaluations = state.practicumData.evaluations || [];
+    const deptName = state.practicumData.supervisorDepartment || state.currentUser?.department || "Campus Host Department";
 
+    const supervisorDeptBadge = `
+      <div class="dept-scope-badge">
+        <span class="dept-icon">&#127970;</span>
+        <span>Host Department: <strong>${escapeHtml(deptName)}</strong></span>
+        <span class="dept-pill-badge">&#128274; Department Restricted</span>
+      </div>
+    `;
+
+    // =========================================================================
+    // VIEW: EVALUATE TRAINEE DOCUMENTS
+    // =========================================================================
     if (view === "supervisor-eval-docs") {
       el.viewContainer.innerHTML = `
         <div class="page">
           <div class="page-intro">
             <div>
-              <p class="eyebrow">Department Supervisor Evaluation</p>
-              <h1 class="page-title">Evaluate Trainee Clearance & Documents</h1>
+              <p class="eyebrow">Department Supervisor Clearance</p>
+              <h1 class="page-title">Evaluate Trainee Clearance Documents</h1>
               <p>Review and evaluate mandatory documents submitted by OJT students deployed in your department. Approve trainees once documents are verified.</p>
+              ${supervisorDeptBadge}
+            </div>
+            ${students.length > 0 ? '<button class="btn-approve-student" id="btnSupervisorEvalDocApproveTrainee" type="button">&#10003; Approve Student Placement</button>' : ''}
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Submitted Trainee Documents & Clearances</h3>
+                <p>Verify endorsement forms, parent consent, medical clearances, and department compliance</p>
+              </div>
+              <span class="score-badge">${studentReqs.length} Total Submissions</span>
+            </div>
+
+            ${
+              students.length === 0
+                ? `<div class="dept-empty-box">
+                    <div class="empty-icon">&#127970;</div>
+                    <h3>No Trainees Assigned to ${escapeHtml(deptName)}</h3>
+                    <p>Only students assigned to your department are visible here. Coordinate with the OJT Faculty Adviser for student endorsements.</p>
+                  </div>`
+                : `
+              <div class="table-wrap">
+                <table class="data-table" aria-label="Supervisor Document Evaluation Table">
+                  <thead>
+                    <tr>
+                      <th>Student Name</th>
+                      <th>Document Name</th>
+                      <th>Program</th>
+                      <th>Status</th>
+                      <th>Submission Info</th>
+                      <th>Supervisor Remarks</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      studentReqs.length === 0
+                        ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No document submissions awaiting supervisor review.</td></tr>'
+                        : studentReqs
+                            .map(
+                              (r) => `
+                          <tr>
+                            <td><strong>${escapeHtml(r.studentName)}</strong></td>
+                            <td><strong>${escapeHtml(r.name)}</strong></td>
+                            <td>${escapeHtml(r.studentProgram || "BS Information Technology")}</td>
+                            <td><span class="status ${r.status === "Approved" ? "status-green" : r.status === "Revision" ? "status-coral" : "status-yellow"}">${escapeHtml(r.status)}</span></td>
+                            <td>${escapeHtml(r.submittedAt || r.meta || "Submitted")}</td>
+                            <td>${escapeHtml(r.remarks || "—")}</td>
+                            <td>
+                              <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('eval-doc', '${escapeHtml(r.studentName)}', '${escapeHtml(r.name)}')">
+                                &#128196; Evaluate Document
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                            )
+                            .join("")
+                    }
+                  </tbody>
+                </table>
+              </div>
+            `
+            }
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnSupervisorEvalDocApproveTrainee")?.addEventListener("click", () => {
+        if (students.length > 0) {
+          openModal("approve-student", { student: students[0].name });
+        }
+      });
+      return;
+    }
+
+    // =========================================================================
+    // VIEW: VERIFY ATTENDANCE (DTR)
+    // =========================================================================
+    if (view === "attendance-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Supervisory Attendance Verification</p>
+              <h1 class="page-title">Daily Time Record (DTR) Verification</h1>
+              <p>Review and verify daily attendance logs, shifts, and rendered hours of assigned practicum trainees.</p>
+              ${supervisorDeptBadge}
+            </div>
+            ${students.length > 0 ? '<button class="primary-button" id="btnSupervisorLogDtrForStudent" type="button">&#9719; Verify Trainee Shift</button>' : ''}
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Trainee Shift & Attendance Logs</h3>
+                <p>Logs submitted by trainees for morning, afternoon, and regular shifts</p>
+              </div>
+              <span class="score-badge">${attendances.length} Total Logs</span>
+            </div>
+
+            ${
+              students.length === 0
+                ? `<div class="dept-empty-box">
+                    <div class="empty-icon">&#127970;</div>
+                    <h3>No Trainees Assigned to ${escapeHtml(deptName)}</h3>
+                    <p>Only students assigned to your department are visible here.</p>
+                  </div>`
+                : `
+              <div class="table-wrap">
+                <table class="data-table" aria-label="Attendance Verification Table">
+                  <thead>
+                    <tr>
+                      <th>Trainee Name</th>
+                      <th>Date</th>
+                      <th>Schedule</th>
+                      <th>Time In</th>
+                      <th>Time Out</th>
+                      <th>Hours Rendered</th>
+                      <th>Status</th>
+                      <th>Trainee Remarks</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      attendances.length === 0
+                        ? '<tr><td colspan="9" style="text-align:center; padding:24px; color:#6c7b80;">No attendance records submitted yet.</td></tr>'
+                        : attendances
+                            .map(
+                              (a) => `
+                          <tr>
+                            <td><strong>${escapeHtml(a.studentName)}</strong></td>
+                            <td><strong>${escapeHtml(a.date)}</strong></td>
+                            <td>${escapeHtml(a.schedule || "Regular")}</td>
+                            <td>${escapeHtml(a.timeIn)}</td>
+                            <td>${escapeHtml(a.timeOut)}</td>
+                            <td><span class="score-badge">${escapeHtml(a.total)}</span></td>
+                            <td><span class="status ${a.status === "Present" ? "status-green" : a.status === "Late" ? "status-yellow" : "status-coral"}">&#10003; ${escapeHtml(a.status)}</span></td>
+                            <td>${escapeHtml(a.remarks || "—")}</td>
+                            <td>
+                              <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('attendance', '${escapeHtml(a.studentName)}')">
+                                &#9719; Verify Shift
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                            )
+                            .join("")
+                    }
+                  </tbody>
+                </table>
+              </div>
+            `
+            }
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnSupervisorLogDtrForStudent")?.addEventListener("click", () => {
+        if (students.length > 0) {
+          openModal("review-attendance", { student: students[0].name });
+        }
+      });
+      return;
+    }
+
+    // =========================================================================
+    // VIEW: ASSIGNED WORK TASKS
+    // =========================================================================
+    if (view === "tasks-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Department Deliverables & Assignments</p>
+              <h1 class="page-title">Assigned Workplace Tasks</h1>
+              <p>Create, assign, and track technical deliverables, maintenance duties, and department assignments for trainees.</p>
+              ${supervisorDeptBadge}
+            </div>
+            ${students.length > 0 ? '<button class="primary-button" id="btnSupervisorCreateTask" type="button">&#43; Assign New Task</button>' : ''}
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Department Tasks Roster</h3>
+                <p>Ongoing and completed project deliverables assigned to department trainees</p>
+              </div>
+              <span class="score-badge">${tasks.length} Total Tasks</span>
+            </div>
+
+            ${
+              students.length === 0
+                ? `<div class="dept-empty-box">
+                    <div class="empty-icon">&#127970;</div>
+                    <h3>No Trainees Assigned to ${escapeHtml(deptName)}</h3>
+                    <p>When trainees are assigned to your department, you can assign them workplace tasks and projects.</p>
+                  </div>`
+                : `
+              <div class="table-wrap">
+                <table class="data-table" aria-label="Tasks Management Table">
+                  <thead>
+                    <tr>
+                      <th>Assigned Trainee</th>
+                      <th>Task Title</th>
+                      <th>Work Details / Deliverable</th>
+                      <th>Due Date</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      tasks.length === 0
+                        ? '<tr><td colspan="6" style="text-align:center; padding:24px; color:#6c7b80;">No tasks assigned yet. Click "+ Assign New Task" to create one.</td></tr>'
+                        : tasks
+                            .map(
+                              (t) => `
+                          <tr>
+                            <td><strong>${escapeHtml(t.studentName)}</strong></td>
+                            <td><strong>${escapeHtml(t.title)}</strong></td>
+                            <td style="max-width:280px;">${escapeHtml(t.details || "—")}</td>
+                            <td>${escapeHtml(t.due)}</td>
+                            <td>
+                              <span class="status ${t.done ? "status-green" : "status-yellow"}">
+                                ${t.done ? "&#10003; Completed" : "In Progress"}
+                              </span>
+                            </td>
+                            <td>
+                              <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('task', '${escapeHtml(t.studentName)}')">
+                                &#43; Assign Another
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                            )
+                            .join("")
+                    }
+                  </tbody>
+                </table>
+              </div>
+            `
+            }
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnSupervisorCreateTask")?.addEventListener("click", () => openModal("task"));
+      return;
+    }
+
+    // =========================================================================
+    // VIEW: REVIEW DAILY JOURNALS
+    // =========================================================================
+    if (view === "journal-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Trainee Daily Journal Review</p>
+              <h1 class="page-title">Review Trainee Reflection Journals</h1>
+              <p>Review daily activities, technical learnings, and reflections submitted by students. Provide supervisory feedback.</p>
+              ${supervisorDeptBadge}
             </div>
           </div>
 
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h3>Submitted Trainee Documents</h3>
-                <p>Verify endorsement forms, parent consent, medical clearances, and department compliance</p>
+                <h3>Submitted Reflection Journals</h3>
+                <p>Daily learning synthesis and hours claimed by practicum trainees</p>
               </div>
-              <span class="score-badge">${studentReqs.length} Total Submissions</span>
+              <span class="score-badge">${journals.length} Submissions</span>
             </div>
 
-            <div class="table-wrap">
-              <table class="data-table" aria-label="Supervisor Document Evaluation Table">
-                <thead>
-                  <tr>
-                    <th>Student Name</th>
-                    <th>Document Name</th>
-                    <th>Program</th>
-                    <th>Status</th>
-                    <th>Submission Info</th>
-                    <th>Supervisor Remarks</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${
-                    studentReqs.length === 0
-                      ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No document submissions awaiting supervisor review.</td></tr>'
-                      : studentReqs
-                          .map(
-                            (r) => `
-                        <tr>
-                          <td><strong>${escapeHtml(r.studentName)}</strong></td>
-                          <td><strong>${escapeHtml(r.name)}</strong></td>
-                          <td>${escapeHtml(r.studentProgram || "BS Information Technology")}</td>
-                          <td><span class="status ${r.status === "Approved" ? "status-green" : r.status === "Revision" ? "status-coral" : "status-yellow"}">${escapeHtml(r.status)}</span></td>
-                          <td>${escapeHtml(r.submittedAt || r.meta || "Submitted")}</td>
-                          <td>${escapeHtml(r.remarks || "—")}</td>
-                          <td>
-                            <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('eval-doc', '${escapeHtml(r.studentName)}', '${escapeHtml(r.name)}')">
-                              &#128196; Evaluate Document
-                            </button>
-                          </td>
-                        </tr>
-                      `
-                          )
-                          .join("")
-                  }
-                </tbody>
-              </table>
-            </div>
+            ${
+              students.length === 0
+                ? `<div class="dept-empty-box">
+                    <div class="empty-icon">&#127970;</div>
+                    <h3>No Trainees Assigned to ${escapeHtml(deptName)}</h3>
+                    <p>Reflection journals submitted by students assigned to your department will appear here.</p>
+                  </div>`
+                : `
+              <div class="table-wrap">
+                <table class="data-table" aria-label="Journal Review Table">
+                  <thead>
+                    <tr>
+                      <th>Trainee Name</th>
+                      <th>Date</th>
+                      <th>Journal Topic / Title</th>
+                      <th>Reflection Summary</th>
+                      <th>Claimed Hours</th>
+                      <th>Review Status</th>
+                      <th>Supervisor Remarks</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      journals.length === 0
+                        ? '<tr><td colspan="8" style="text-align:center; padding:24px; color:#6c7b80;">No reflection journals submitted yet.</td></tr>'
+                        : journals
+                            .map(
+                              (j) => `
+                          <tr>
+                            <td><strong>${escapeHtml(j.studentName)}</strong></td>
+                            <td><strong>${escapeHtml(j.date)}</strong></td>
+                            <td><strong>${escapeHtml(j.title)}</strong></td>
+                            <td style="max-width:260px;">${escapeHtml(j.reflection || "—")}</td>
+                            <td><span class="score-badge">${escapeHtml(j.hours)} hrs</span></td>
+                            <td>
+                              <span class="status ${j.status === "Approved" ? "status-green" : j.status === "Revision" ? "status-coral" : "status-yellow"}">
+                                ${escapeHtml(j.status)}
+                              </span>
+                            </td>
+                            <td>${escapeHtml(j.remarks || "—")}</td>
+                            <td>
+                              <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('journal', '${escapeHtml(j.studentName)}')">
+                                &#9998; Review Journal
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                            )
+                            .join("")
+                    }
+                  </tbody>
+                </table>
+              </div>
+            `
+            }
           </div>
         </div>
       `;
       return;
     }
 
+    // =========================================================================
+    // VIEW: SUPERVISORY COACHING
+    // =========================================================================
+    if (view === "feedback-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Mentorship & Supervisory Guidance</p>
+              <h1 class="page-title">Supervisory Coaching & Feedback</h1>
+              <p>Provide constructive mentoring, feedback ratings, and commendations for assigned student trainees.</p>
+              ${supervisorDeptBadge}
+            </div>
+            ${students.length > 0 ? '<button class="primary-button" id="btnSupervisorAddFeedback" type="button">&#9825; Give Coaching Feedback</button>' : ''}
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Coaching & Feedback History</h3>
+                <p>Mentorship logs and supervisory ratings given to practicum students</p>
+              </div>
+              <span class="score-badge">${feedbacks.length} Feedback Logs</span>
+            </div>
+
+            ${
+              students.length === 0
+                ? `<div class="dept-empty-box">
+                    <div class="empty-icon">&#127970;</div>
+                    <h3>No Trainees Assigned to ${escapeHtml(deptName)}</h3>
+                    <p>You can give coaching feedback once students are deployed in your department.</p>
+                  </div>`
+                : `
+              <div class="table-wrap">
+                <table class="data-table" aria-label="Supervisor Feedback Table">
+                  <thead>
+                    <tr>
+                      <th>Trainee Name</th>
+                      <th>Coaching Rating</th>
+                      <th>Supervisor Coaching Notes & Advice</th>
+                      <th>Date Provided</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      feedbacks.length === 0
+                        ? '<tr><td colspan="5" style="text-align:center; padding:24px; color:#6c7b80;">No coaching feedback recorded yet. Click "Give Coaching Feedback" above.</td></tr>'
+                        : feedbacks
+                            .map(
+                              (f) => `
+                          <tr>
+                            <td><strong>${escapeHtml(f.studentName)}</strong></td>
+                            <td><span class="score-badge">&#9733; ${escapeHtml(f.rating)} / 5</span></td>
+                            <td style="max-width:320px;">${escapeHtml(f.notes || "—")}</td>
+                            <td>${escapeHtml(f.date)}</td>
+                            <td>
+                              <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('feedback', '${escapeHtml(f.studentName)}')">
+                                &#9825; Update Feedback
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                            )
+                            .join("")
+                    }
+                  </tbody>
+                </table>
+              </div>
+            `
+            }
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnSupervisorAddFeedback")?.addEventListener("click", () => {
+        if (students.length > 0) {
+          openModal("feedback", { student: students[0].name });
+        }
+      });
+      return;
+    }
+
+    // =========================================================================
+    // VIEW: PERFORMANCE EVALUATION
+    // =========================================================================
+    if (view === "eval-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Workplace Performance Appraisal</p>
+              <h1 class="page-title">Trainee Performance Evaluation</h1>
+              <p>Conduct official midterm and final workplace performance appraisal for trainees based on CHED and ISPSC competencies.</p>
+              ${supervisorDeptBadge}
+            </div>
+            ${students.length > 0 ? '<button class="primary-button" id="btnSupervisorConductEval" type="button">&#9734; Conduct Trainee Evaluation</button>' : ''}
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Official Workplace Appraisals</h3>
+                <p>Numeric ratings (0&ndash;100) and academic grade equivalencies</p>
+              </div>
+              <span class="score-badge">${evaluations.length} Appraisals Completed</span>
+            </div>
+
+            ${
+              students.length === 0
+                ? `<div class="dept-empty-box">
+                    <div class="empty-icon">&#127970;</div>
+                    <h3>No Trainees Assigned to ${escapeHtml(deptName)}</h3>
+                    <p>Official performance evaluation forms can be completed once students are assigned to your unit.</p>
+                  </div>`
+                : `
+              <div class="table-wrap">
+                <table class="data-table" aria-label="Performance Evaluation Table">
+                  <thead>
+                    <tr>
+                      <th>Trainee Name</th>
+                      <th>Appraisal Period</th>
+                      <th>Numerical Score</th>
+                      <th>Academic Equivalence</th>
+                      <th>Supervisor Comments</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      evaluations.length === 0
+                        ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No performance evaluations submitted yet. Click "Conduct Trainee Evaluation" to begin.</td></tr>'
+                        : evaluations
+                            .map(
+                              (e) => `
+                          <tr>
+                            <td><strong>${escapeHtml(e.studentName)}</strong></td>
+                            <td><strong>${escapeHtml(e.period)}</strong></td>
+                            <td><span class="score-badge">${escapeHtml(e.rating)} / 100</span></td>
+                            <td><span class="grade-pill">${escapeHtml(e.gradeEquiv || getGradeEquivalence(e.rating))}</span></td>
+                            <td style="max-width:280px;">${escapeHtml(e.comments || "—")}</td>
+                            <td><span class="status status-green">&#10003; ${escapeHtml(e.status)}</span></td>
+                            <td>
+                              <button class="secondary-button" style="padding:5px 10px; font-size:11.5px;" onclick="window.supervisorAction('eval', '${escapeHtml(e.studentName)}')">
+                                &#9734; Conduct / Edit Eval
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                            )
+                            .join("")
+                    }
+                  </tbody>
+                </table>
+              </div>
+            `
+            }
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnSupervisorConductEval")?.addEventListener("click", () => {
+        if (students.length > 0) {
+          openModal("evaluation", { student: students[0].name });
+        }
+      });
+      return;
+    }
+
+    // =========================================================================
+    // DEFAULT VIEW: TRAINEE ROSTER & DEPARTMENT APPROVAL (supervisor-students)
+    // =========================================================================
     el.viewContainer.innerHTML = `
       <div class="page">
         <div class="page-intro">
           <div>
             <p class="eyebrow">Department Supervisor Portal</p>
             <h1 class="page-title">${escapeHtml(state.currentUser.name)}'s Trainee Workspace</h1>
-            <p>Manage, supervise, evaluate submitted documents, verify attendance, assign tasks, and provide departmental approval for assigned ISPSC practicum students.</p>
+            <p>Manage assigned trainees, evaluate submitted clearance documents, verify attendance, and approve department placement.</p>
+            ${supervisorDeptBadge}
           </div>
-          <div class="button-row" style="display:flex; gap:10px;">
+          <div class="button-row" style="display:flex; gap:10px; flex-wrap:wrap;">
             <button class="secondary-button" id="btnSupervisorEvalDocLink" type="button">&#128196; Evaluate Documents</button>
-            <button class="primary-button" id="btnSupervisorAddTask" type="button">&#43; Assign New Task</button>
+            ${students.length > 0 ? '<button class="primary-button" id="btnSupervisorAddTask" type="button">&#43; Assign New Task</button>' : ''}
+          </div>
+        </div>
+
+        <div class="stats-grid" style="margin-bottom:20px;">
+          <div class="stat-card">
+            <div class="stat-icon icon-green">&#128101;</div>
+            <strong>${students.length} Trainees</strong>
+            <span>Assigned to ${escapeHtml(deptName)}</span>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon icon-coral">&#128196;</div>
+            <strong>${studentReqs.length} Documents</strong>
+            <span>Clearance Submissions</span>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon icon-blue">&#128197;</div>
+            <strong>${attendances.length} DTR Logs</strong>
+            <span>Attendance Records</span>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon icon-gold">&#9745;</div>
+            <strong>${tasks.length} Tasks</strong>
+            <span>Department Assignments</span>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-header">
             <div>
-              <h3>Assigned Practicum Trainees</h3>
-              <p>Active trainees rendering OJT hours in your campus department / office</p>
+              <h3>Assigned Practicum Trainees & Department Approval</h3>
+              <p>Review trainee placement status, verify clearance requirements, and activate OJT deployment</p>
             </div>
             <span class="score-badge">${students.length} Trainees Deployed</span>
           </div>
 
-          <div class="table-wrap">
-            <table class="data-table" aria-label="Supervisor Student Roster">
-              <thead>
-                <tr>
-                  <th>Trainee Name</th>
-                  <th>Degree Program</th>
-                  <th>Department Status</th>
-                  <th>Submitted Docs</th>
-                  <th>Rendered Progress</th>
-                  <th>Latest Attendance</th>
-                  <th>Supervisory Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${
-                  students.length === 0
-                    ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No trainees currently assigned to your department.</td></tr>'
-                    : students
-                        .map(
-                          (s) => `
-                      <tr>
-                        <td>
-                          <strong>${escapeHtml(s.name)}</strong><br />
-                          <small style="color:var(--muted);">ID: ${escapeHtml(s.idNumber || "—")}</small>
-                        </td>
-                        <td>${escapeHtml(s.program)}</td>
-                        <td>
-                          <span class="status ${s.status === "Active" ? "status-green" : s.status === "Revision" ? "status-coral" : "status-yellow"}">
-                            ${s.status === "Active" ? "&#10003; Approved (Active)" : escapeHtml(s.status)}
-                          </span>
-                        </td>
-                        <td>
-                          <span class="status ${s.pendingRequirements > 0 ? "status-yellow" : "status-green"}">${escapeHtml(s.requirements || "0/4")}</span>
-                        </td>
-                        <td>
-                          <strong>${escapeHtml(s.hours)}</strong>
-                          <div class="progress-bar" style="height:5px; margin-top:4px;">
-                            <i style="width:${escapeHtml(s.progress)};"></i>
-                          </div>
-                        </td>
-                        <td>
-                          ${escapeHtml(s.attendanceDate)}<br />
-                          <span class="status ${s.attendanceStatus === "Present" ? "status-green" : "status-yellow"}">${escapeHtml(s.attendanceStatus)}</span>
-                        </td>
-                        <td>
-                          <div class="table-action-group">
-                            <button class="primary-button" style="padding:4px 8px; font-size:11px; background:#4b6607;" onclick="window.supervisorAction('approve-student', '${escapeHtml(s.name)}')">&#10003; Approve Student</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.supervisorAction('eval-doc', '${escapeHtml(s.name)}')">&#128196; Eval Docs</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.supervisorAction('eval', '${escapeHtml(s.name)}')">&#9734; Evaluate</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.supervisorAction('feedback', '${escapeHtml(s.name)}')">&#9825; Feedback</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.supervisorAction('task', '${escapeHtml(s.name)}')">&#43; Task</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.supervisorAction('attendance', '${escapeHtml(s.name)}')">&#9719; Verify DTR</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.supervisorAction('journal', '${escapeHtml(s.name)}')">&#9998; Review Journal</button>
-                          </div>
-                        </td>
-                      </tr>
-                    `
-                        )
-                        .join("")
-                }
-              </tbody>
-            </table>
-          </div>
+          ${
+            students.length === 0
+              ? `<div class="dept-empty-box">
+                  <div class="empty-icon">&#127970;</div>
+                  <h3>No Trainees Currently Assigned to ${escapeHtml(deptName)}</h3>
+                  <p>You can only view and manage students assigned to your department. When the OJT Adviser assigns trainees to your unit, they will automatically appear here for document verification and attendance logging.</p>
+                </div>`
+              : `
+            <div class="table-wrap">
+              <table class="data-table" aria-label="Supervisor Student Roster">
+                <thead>
+                  <tr>
+                    <th>Trainee Name</th>
+                    <th>Degree Program</th>
+                    <th>Department Placement Status</th>
+                    <th>Submitted Clearances</th>
+                    <th>Rendered Progress</th>
+                    <th>Latest Attendance</th>
+                    <th>Department Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${students
+                    .map(
+                      (s) => `
+                    <tr>
+                      <td>
+                        <strong>${escapeHtml(s.name)}</strong><br />
+                        <small style="color:var(--muted);">ID: ${escapeHtml(s.idNumber || "—")}</small>
+                      </td>
+                      <td>${escapeHtml(s.program)}</td>
+                      <td>
+                        <span class="status ${s.status === "Active" ? "status-green" : s.status === "Revision" ? "status-coral" : "status-yellow"}">
+                          ${s.status === "Active" ? "&#10003; Approved" : escapeHtml(s.status || "Pending Approval")}
+                        </span>
+                      </td>
+                      <td>
+                        <span class="status ${s.pendingRequirements > 0 ? "status-yellow" : "status-green"}">${escapeHtml(s.requirements || "0/4")}</span>
+                      </td>
+                      <td>
+                        <strong>${escapeHtml(s.hours)}</strong>
+                        <div class="progress-bar" style="height:5px; margin-top:4px;">
+                          <i style="width:${escapeHtml(s.progress)};"></i>
+                        </div>
+                      </td>
+                      <td>
+                        ${escapeHtml(s.attendanceDate)}<br />
+                        <span class="status ${s.attendanceStatus === "Present" ? "status-green" : "status-yellow"}">${escapeHtml(s.attendanceStatus)}</span>
+                      </td>
+                      <td>
+                        <div class="table-action-group">
+                          <button class="btn-approve-student" onclick="window.supervisorAction('approve-student', '${escapeHtml(s.name)}')">&#10003; Approve Student</button>
+                          <button class="secondary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.supervisorAction('eval-doc', '${escapeHtml(s.name)}')">&#128196; Eval Docs</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+          `
+          }
         </div>
       </div>
     `;
@@ -1298,115 +1934,464 @@
   };
 
   // =========================================================================
-  // VIEW RENDERERS: ADVISER
+  // VIEW RENDERERS: ADVISER (WITH DEPARTMENT FILTERING & SELECTION)
   // =========================================================================
 
-  function renderAdviserViews(view) {
-    const students = state.practicumData.students || [];
-    const pendingReqs = state.practicumData.pendingRequirements || [];
+  function getAvailableDepartmentsList() {
+    if (state.practicumData.availableDepartments && state.practicumData.availableDepartments.length > 0) {
+      return state.practicumData.availableDepartments;
+    }
+    return [
+      "Management Information Systems (MIS) / ICT Center",
+      "Office of the Campus Registrar",
+      "Campus Library & Learning Resource Center",
+      "Office of the Campus Dean",
+      "Administrative & Finance Services",
+      "College of Computing Studies Laboratory",
+      "Campus Clinic / Health Services"
+    ];
+  }
 
+  function renderAdviserDeptFilterBar(filteredCount, totalCount) {
+    const depts = getAvailableDepartmentsList();
+    return `
+      <div class="dept-filter-bar">
+        <div class="dept-filter-group">
+          <label for="adviserDeptSelect" class="dept-filter-label">
+            <span>&#127970;</span> Filter by Host Department:
+          </label>
+          <select id="adviserDeptSelect" class="dept-filter-select">
+            <option value="all" ${state.selectedDepartmentFilter === "all" ? "selected" : ""}>All Campus Departments (${totalCount} Total Advisees)</option>
+            ${depts.map((d) => `<option value="${escapeHtml(d)}" ${state.selectedDepartmentFilter === d ? "selected" : ""}>${escapeHtml(d)}</option>`).join("")}
+          </select>
+        </div>
+        <span class="dept-filter-count">
+          ${state.selectedDepartmentFilter === "all" ? `Showing all ${totalCount} trainees` : `Showing ${filteredCount} trainee(s) in department`}
+        </span>
+      </div>
+    `;
+  }
+
+  function bindAdviserDeptFilter() {
+    const select = document.getElementById("adviserDeptSelect");
+    if (select) {
+      select.addEventListener("change", (e) => {
+        state.selectedDepartmentFilter = e.target.value;
+        renderCurrentView();
+      });
+    }
+  }
+
+  function filterBySelectedDepartment(items, isStudentList = true) {
+    if (!state.selectedDepartmentFilter || state.selectedDepartmentFilter === "all") {
+      return items;
+    }
+    const filter = state.selectedDepartmentFilter.toLowerCase();
+    return items.filter((item) => {
+      const company = (item.company || item.company_name || "").toLowerCase();
+      const dept = (item.department || "").toLowerCase();
+      const studentName = (item.studentName || item.name || "").toLowerCase();
+      
+      // Match by company/department or student belonging to that department
+      if (company.includes(filter) || filter.includes(company) || dept.includes(filter)) {
+        return true;
+      }
+      
+      // If it's a submission, find the student's company
+      if (item.studentName) {
+        const student = (state.practicumData.students || []).find((s) => s.name === item.studentName);
+        if (student) {
+          const sCompany = (student.company || "").toLowerCase();
+          const sDept = (student.department || "").toLowerCase();
+          return sCompany.includes(filter) || filter.includes(sCompany) || sDept.includes(filter);
+        }
+      }
+      return false;
+    });
+  }
+
+  function renderAdviserViews(view) {
+    const allStudents = state.practicumData.students || [];
+    const allReviewReqs = state.practicumData.reviewRequirements || state.practicumData.pendingRequirements || [];
+    const allReports = state.practicumData.reports || [];
+
+    const students = filterBySelectedDepartment(allStudents, true);
+    const reviewReqs = filterBySelectedDepartment(allReviewReqs, false);
+    const reports = filterBySelectedDepartment(allReports, false);
+
+    // =========================================================================
+    // VIEW: CLEARANCE VERIFICATION (requirements-mgmt)
+    // =========================================================================
+    if (view === "requirements-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Adviser Clearance Hub</p>
+              <h1 class="page-title">Clearance Document Verification</h1>
+              <p>Review and verify institutional clearance documents submitted by advisees across campus departments.</p>
+            </div>
+          </div>
+
+          ${renderAdviserDeptFilterBar(reviewReqs.length, allReviewReqs.length)}
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Pending Clearance Documents</h3>
+                <p>Documents submitted by advisees</p>
+              </div>
+                <span class="score-badge">${reviewReqs.length} Documents</span>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table" aria-label="Adviser Requirements Verification">
+                <thead>
+                  <tr>
+                    <th>Student Name</th>
+                    <th>Document Name</th>
+                    <th>Program</th>
+                    <th>Submission Info</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    reviewReqs.length === 0
+                      ? '<tr><td colspan="5" style="text-align:center; padding:24px; color:#6c7b80;">No uploaded clearance documents in the selected department.</td></tr>'
+                      : reviewReqs
+                          .map(
+                            (r) => `
+                        <tr>
+                          <td><strong>${escapeHtml(r.studentName)}</strong></td>
+                          <td><strong>${escapeHtml(r.name)}</strong></td>
+                          <td>${escapeHtml(r.studentProgram || "BS Information Technology")}</td>
+                          <td>${escapeHtml(r.submittedAt || r.meta || "Submitted")}</td>
+                          <td>
+                            <button class="secondary-button" style="padding:4px 9px; font-size:11.5px;${r.previewUrl ? "" : "; opacity:0.55; cursor:not-allowed;"}" ${r.previewUrl ? `onclick="window.previewRequirement('${escapeHtml(r.previewUrl)}', '${escapeHtml(r.name)}')"` : 'disabled title="No file is attached to this submission"'}>&#128065; View Document</button>
+                            ${r.previewUrl ? "" : '<small style="display:block; margin-top:4px; color:#b45309;">No file attached</small>'}
+                            <button class="primary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adviserAction('req', '${escapeHtml(r.studentName)}', '${escapeHtml(r.name)}')">
+                              &#10003; Verify Clearance
+                            </button>
+                          </td>
+                        </tr>
+                      `
+                          )
+                          .join("")
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      bindAdviserDeptFilter();
+      return;
+    }
+
+    // =========================================================================
+    // VIEW: ACCOMPLISHMENT REPORTS (reports-mgmt)
+    // =========================================================================
+    if (view === "reports-mgmt") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Adviser Academic Review</p>
+              <h1 class="page-title">Accomplishment Reports Verification</h1>
+              <p>Review weekly synthesis and periodic accomplishment reports submitted by practicum advisees.</p>
+            </div>
+          </div>
+
+          ${renderAdviserDeptFilterBar(reports.length, allReports.length)}
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Advisee Accomplishment Reports</h3>
+                <p>Synthesis submissions aligned with curriculum outcomes</p>
+              </div>
+              <span class="score-badge">${reports.length} Total Reports</span>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table" aria-label="Adviser Reports Verification">
+                <thead>
+                  <tr>
+                    <th>Student Name</th>
+                    <th>Report Title</th>
+                    <th>Summary / Scope</th>
+                    <th>Period</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    reports.length === 0
+                      ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No accomplishment reports found in selected department.</td></tr>'
+                      : reports
+                          .map(
+                            (rep) => `
+                        <tr>
+                          <td><strong>${escapeHtml(rep.studentName)}</strong></td>
+                          <td><strong>${escapeHtml(rep.title)}</strong></td>
+                          <td style="max-width:280px;">${escapeHtml(rep.summary || "—")}</td>
+                          <td>${escapeHtml(rep.period || "Weekly")}</td>
+                          <td><span class="status ${rep.status === "Approved" ? "status-green" : rep.status === "Revision" ? "status-coral" : "status-yellow"}">${escapeHtml(rep.status)}</span></td>
+                          <td>${escapeHtml(rep.submitted)}</td>
+                          <td>
+                            <button class="primary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adviserAction('report', '${escapeHtml(rep.studentName)}')">
+                              &#9638; Review Report
+                            </button>
+                          </td>
+                        </tr>
+                      `
+                          )
+                          .join("")
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      bindAdviserDeptFilter();
+      return;
+    }
+
+    // =========================================================================
+    // VIEW: STUDENT APPRAISALS (adviser-appraisal)
+    // =========================================================================
+    if (view === "adviser-appraisal") {
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Practicum Academic Evaluation</p>
+              <h1 class="page-title">Student Appraisals & Final Grades</h1>
+              <p>View workplace evaluation scores submitted by Department Supervisors and compute academic ratings.</p>
+            </div>
+          </div>
+
+          ${renderAdviserDeptFilterBar(students.length, allStudents.length)}
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Advisees Performance & Appraisal Summary</h3>
+                <p>Supervisor numeric scores and institutional grade equivalents</p>
+              </div>
+              <span class="score-badge">${students.length} Advisees</span>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table" aria-label="Student Appraisals Table">
+                <thead>
+                  <tr>
+                    <th>Student Name</th>
+                    <th>Department & Supervisor</th>
+                    <th>Rendered Progress</th>
+                    <th>Supervisor Score</th>
+                    <th>Institutional Grade</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    students.length === 0
+                      ? '<tr><td colspan="6" style="text-align:center; padding:24px; color:#6c7b80;">No advisees found in selected department.</td></tr>'
+                      : students
+                          .map(
+                            (s) => `
+                        <tr>
+                          <td><strong>${escapeHtml(s.name)}</strong><br /><small style="color:var(--muted);">ID: ${escapeHtml(s.idNumber || "—")}</small></td>
+                          <td><strong>${escapeHtml(s.company)}</strong><br /><small style="color:var(--muted);">Sup: ${escapeHtml(s.supervisor || "Unassigned")}</small></td>
+                          <td>
+                            <strong>${escapeHtml(s.hours)}</strong>
+                            <div class="progress-bar" style="height:5px; margin-top:4px;">
+                              <i style="width:${escapeHtml(s.progress)};"></i>
+                            </div>
+                          </td>
+                          <td>
+                            ${s.evalRating ? `<span class="score-badge">${escapeHtml(s.evalRating)} / 100</span>` : '<span style="color:#8ca0aa;">Pending</span>'}
+                          </td>
+                          <td>
+                            <span class="grade-pill">${escapeHtml(s.evalGrade || "Pending")}</span>
+                          </td>
+                          <td>
+                            <button class="secondary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adviserAction('records', '${escapeHtml(s.name)}')">
+                              View Records
+                            </button>
+                          </td>
+                        </tr>
+                      `
+                          )
+                          .join("")
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      bindAdviserDeptFilter();
+      return;
+    }
+
+    // =========================================================================
+    // DEFAULT VIEW: ADVISEES ROSTER (adviser-students)
+    // =========================================================================
     el.viewContainer.innerHTML = `
       <div class="page">
         <div class="page-intro">
           <div>
             <p class="eyebrow">Faculty OJT Adviser Portal</p>
             <h1 class="page-title">Student Advisees & Campus Department Deployments</h1>
-            <p>Assign OJT students to their respective campus departments/units. Trainees will submit their documentary requirements to the Department Supervisor for final evaluation and approval.</p>
+            <p>Assign OJT students to their respective campus host departments. Trainees will submit their documentary requirements directly to their Department Supervisor for clearance and approval.</p>
           </div>
-          <button class="primary-button" id="btnAdviserAssign" type="button">&#43; Assign Trainee to Department</button>
         </div>
 
         <div class="stats-grid" style="margin-bottom:20px;">
           <div class="stat-card">
             <div class="stat-icon icon-green">&#127891;</div>
-            <strong>${students.length} Advisees</strong>
-            <span>Enrolled in Practicum Course</span>
+            <strong>${allStudents.length} Advisees</strong>
+            <span>Enrolled in Practicum</span>
           </div>
           <div class="stat-card">
             <div class="stat-icon icon-coral">&#10003;</div>
-            <strong>${pendingReqs.length} Documents</strong>
-            <span>Clearance Verifications</span>
+            <strong>${allReviewReqs.length} Documents</strong>
+            <span>Uploaded Clearances</span>
           </div>
           <div class="stat-card">
             <div class="stat-icon icon-blue">&#128197;</div>
             <strong>480 Hours</strong>
-            <span>CHED Curriculum Target</span>
+            <span>Curriculum Target</span>
           </div>
         </div>
 
-        <div class="panel">
+        ${renderAdviserDeptFilterBar(students.length, allStudents.length)}
+
+        <div class="panel adviser-roster-panel">
           <div class="panel-header">
             <div>
               <h3>Trainee Department Assignments & Status</h3>
-              <p>Manage and monitor assigned department units and clearance compliance</p>
+              <p>Manage and monitor assigned department units, supervisors, and clearance compliance</p>
             </div>
           </div>
 
-          <div class="table-wrap">
-            <table class="data-table" aria-label="Adviser Student Monitoring">
-              <thead>
-                <tr>
-                  <th>Student Name</th>
-                  <th>Student ID</th>
-                  <th>Assigned Department</th>
-                  <th>Supervisor</th>
-                  <th>Deployment Status</th>
-                  <th>Hours Rendered</th>
-                  <th>Clearance Docs</th>
-                  <th>Adviser Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${
-                  students.length === 0
-                    ? '<tr><td colspan="8" style="text-align:center; padding:24px; color:#6c7b80;">No advisees found in this department.</td></tr>'
-                    : students
-                        .map(
-                          (s) => `
-                      <tr>
-                        <td><strong>${escapeHtml(s.name)}</strong></td>
-                        <td>${escapeHtml(s.idNumber || "—")}</td>
-                        <td><strong>${escapeHtml(s.company)}</strong><br /><small style="color:var(--muted);">${escapeHtml(s.department || "")}</small></td>
-                        <td>${escapeHtml(s.supervisor || "Unassigned")}</td>
-                        <td>
-                          <span class="status ${s.status === "Active" ? "status-green" : s.status === "Revision" ? "status-coral" : "status-yellow"}">
-                            ${s.status === "Active" ? "&#10003; Supervisor Approved" : escapeHtml(s.status)}
-                          </span>
-                        </td>
-                        <td>
-                          <strong>${escapeHtml(s.hours)}</strong>
-                          <div class="progress-bar" style="height:5px; margin-top:4px;">
-                            <i style="width:${escapeHtml(s.progress)};"></i>
-                          </div>
-                        </td>
-                        <td><span class="status ${s.pendingRequirements > 0 ? "status-yellow" : "status-green"}">${escapeHtml(s.requirements)}</span></td>
-                        <td>
-                          <div class="table-action-group">
-                            <button class="primary-button" style="padding:4px 8px; font-size:11px;" onclick="window.adviserAction('assign', '${escapeHtml(s.name)}')">&#127970; Assign Dept</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.adviserAction('req', '${escapeHtml(s.name)}')">&#10003; Review Docs</button>
-                            <button class="secondary-button" style="padding:4px 8px; font-size:11px;" onclick="window.adviserAction('report', '${escapeHtml(s.name)}')">&#9638; Review Report</button>
-                          </div>
-                        </td>
-                      </tr>
-                    `
-                        )
-                        .join("")
-                }
-              </tbody>
-            </table>
+          <div class="adviser-roster-grid" aria-label="Adviser Student Monitoring">
+            ${
+              students.length === 0
+                ? '<div class="adviser-roster-empty">No advisees found matching this department filter.</div>'
+                : students
+                    .map(
+                      (s) => `
+                <article class="adviser-student-card">
+                  <div class="adviser-student-card__header">
+                    <div class="adviser-student-identity">
+                      <div class="adviser-student-avatar" aria-hidden="true">${escapeHtml((s.name || "S").charAt(0).toUpperCase())}</div>
+                      <div>
+                        <h4>${escapeHtml(s.name)}</h4>
+                        <span>ID ${escapeHtml(s.idNumber || "—")}</span>
+                      </div>
+                    </div>
+                    <span class="status ${s.status === "Active" ? "status-green" : s.status === "Revision" ? "status-coral" : "status-yellow"}">
+                      ${s.status === "Active" ? "&#10003; Approved" : escapeHtml(s.status || "Pending Approval")}
+                    </span>
+                  </div>
+
+                  <div class="adviser-student-card__placement">
+                    <span class="adviser-card-label">Host Department</span>
+                    <strong>${escapeHtml(s.company)}</strong>
+                    <small>${escapeHtml(s.department || "Department unit not specified")}</small>
+                  </div>
+
+                  <div class="adviser-student-card__details">
+                    <div>
+                      <span class="adviser-card-label">Supervisor</span>
+                      <strong>${escapeHtml(s.supervisor || "Unassigned")}</strong>
+                      <small>${escapeHtml(s.supervisorEmail || "No email assigned")}</small>
+                    </div>
+                    <div>
+                      <span class="adviser-card-label">Clearance</span>
+                      <strong>${escapeHtml(s.requirements)}</strong>
+                      <span class="status ${s.pendingRequirements > 0 ? "status-yellow" : "status-green"}">${s.pendingRequirements > 0 ? "Needs review" : "Complete"}</span>
+                    </div>
+                  </div>
+
+                  <div class="adviser-student-card__progress">
+                    <div><span class="adviser-card-label">Hours rendered</span><strong>${escapeHtml(s.hours)}</strong></div>
+                    <span>${escapeHtml(s.progress)}</span>
+                  </div>
+                  <div class="progress-bar adviser-progress-bar"><i style="width:${escapeHtml(s.progress)};"></i></div>
+
+                  <div class="adviser-student-card__actions">
+                    <button class="primary-button" type="button" onclick="window.adviserAction('assign', '${escapeHtml(s.name)}')">&#127970; Assign Department</button>
+                    <button class="secondary-button" type="button" onclick="window.adviserAction('req', '${escapeHtml(s.name)}')">&#10003; Review Documents</button>
+                    <button class="secondary-button adviser-report-action" type="button" onclick="window.adviserAction('report', '${escapeHtml(s.name)}')">&#9638; Report</button>
+                  </div>
+                </article>
+              `
+                    )
+                    .join("")
+            }
           </div>
         </div>
       </div>
     `;
 
-    document.getElementById("btnAdviserAssign")?.addEventListener("click", () => openModal("assign-student"));
+    bindAdviserDeptFilter();
   }
 
-  window.adviserAction = function (actionType, studentName) {
+  window.previewRequirement = function (previewUrl, documentName) {
+    document.getElementById("requirementPreviewBackdrop")?.remove();
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "requirementPreviewBackdrop";
+    backdrop.className = "modal-backdrop open";
+    backdrop.setAttribute("role", "dialog");
+    backdrop.setAttribute("aria-modal", "true");
+    backdrop.innerHTML = `
+      <div class="modal-card document-preview-card">
+        <div class="modal-header">
+          <div>
+            <p class="modal-kicker">Document Preview</p>
+            <h2>${escapeHtml(documentName)}</h2>
+          </div>
+          <button type="button" class="icon-button modal-close" aria-label="Close document preview">&times;</button>
+        </div>
+        <iframe src="${escapeHtml(previewUrl)}" title="${escapeHtml(documentName)}" style="width:100%; flex:1; min-height:0; border:1px solid var(--line); border-radius:8px; background:#f8fafc;"></iframe>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    document.body.style.overflow = "hidden";
+
+    const close = () => {
+      backdrop.remove();
+      document.body.style.overflow = "";
+    };
+    backdrop.querySelector(".modal-close")?.addEventListener("click", close);
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) close();
+    });
+  };
+
+  window.adviserAction = async function (actionType, studentName, docName) {
     if (actionType === "assign") {
       openModal("assign-student", { student: studentName });
+    } else if (actionType === "records") {
+      openModal("adviser-records", { student: studentName });
     } else if (actionType === "req") {
-      openModal("review-requirement", { student: studentName });
+      if (docName) {
+        openModal("review-requirement", { student: studentName, reqName: docName });
+      } else {
+        await refreshBackendState();
+        state.currentView = "requirements-mgmt";
+        renderNavigation();
+        renderCurrentView();
+      }
     } else if (actionType === "report") {
       openModal("review-report", { student: studentName });
     }
@@ -1418,54 +2403,457 @@
 
   function renderAdminViews(view) {
     const users = state.practicumData.allUsers || [];
+    const students = state.practicumData.students || [];
+    const supervisors = state.practicumData.supervisors || [];
+    const deptsSummary = state.practicumData.departmentsSummary || [];
+    const auditLogs = state.practicumData.auditLogs || [];
+
+    // =========================================================================
+    // VIEW 1: PLACEMENT & DEPARTMENTS (admin-placements)
+    // =========================================================================
+    if (view === "admin-placements") {
+      const activeCount = students.filter((s) => s.status === "Approved" || s.status === "Active").length;
+      const pendingCount = students.length - activeCount;
+
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Campus Unit Placement Administration</p>
+              <h1 class="page-title">Placement & Campus Departments</h1>
+              <p>Monitor host campus departments, supervise designated campus units, and manage trainee assignments.</p>
+            </div>
+            <button class="primary-button" id="btnAdminAssignTrainee" type="button">&#43; Assign Trainee to Department</button>
+          </div>
+
+          <div class="stats-grid" style="margin-bottom:20px;">
+            <div class="stat-card">
+              <div class="stat-icon icon-blue">&#127970;</div>
+              <strong>${deptsSummary.length || 7} Host Units</strong>
+              <span>Campus Departments</span>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon icon-green">&#128101;</div>
+              <strong>${students.length} Trainees</strong>
+              <span>Total Assigned</span>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon icon-green">&#10003;</div>
+              <strong>${activeCount} Active</strong>
+              <span>Department Approved</span>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon icon-gold">&#9203;</div>
+              <strong>${pendingCount} Pending</strong>
+              <span>Awaiting Document Approval</span>
+            </div>
+          </div>
+
+          <!-- DEPARTMENT OVERVIEW CARDS -->
+          <div class="section-heading">
+            <h2>Campus Host Departments Summary</h2>
+            <span class="score-badge">${deptsSummary.length} Campus Units</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-bottom:24px;">
+            ${deptsSummary
+              .map(
+                (dept) => `
+              <div class="panel" style="display:flex; flex-direction:column; justify-content:space-between; margin-bottom:0;">
+                <div>
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+                    <div class="stat-icon icon-blue" style="margin-bottom:0;">&#127970;</div>
+                    <span class="score-badge" style="font-size:11px;">${dept.traineesCount} Trainee${dept.traineesCount === 1 ? "" : "s"}</span>
+                  </div>
+                  <h4 style="font-size:14px; font-weight:700; color:var(--ink); margin:0 0 6px;">${escapeHtml(dept.name)}</h4>
+                  <p style="font-size:12px; color:var(--muted); margin:0 0 10px; line-height:1.4;">
+                    <strong>Supervisor:</strong> ${escapeHtml(dept.supervisorDisplay || "Unassigned")}
+                  </p>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #f0f3ed; padding-top:10px; margin-top:8px;">
+                  <span style="font-size:11.5px; color:#576574;">
+                    <strong style="color:#274005;">${dept.activeCount} Active</strong> &bull; <span style="color:#b45309;">${dept.pendingCount} Pending</span>
+                  </span>
+                  <button class="secondary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adminFilterDept('${escapeHtml(dept.name)}')">
+                    View Trainees &rarr;
+                  </button>
+                </div>
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+
+          <!-- MASTER PLACEMENT ROSTER -->
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Master Trainee Placement Roster</h3>
+                <p>All institutional student trainees and their assigned host departments</p>
+              </div>
+              <div style="display:flex; gap:10px; align-items:center;">
+                <input type="search" id="adminPlacementSearch" placeholder="Search trainee or department..." style="padding:6px 12px; border-radius:6px; border:1px solid var(--line); font-size:12.5px; width:220px;" />
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table" id="adminPlacementsTable" aria-label="Master Trainee Placement Roster">
+                <thead>
+                  <tr>
+                    <th>Trainee Name</th>
+                    <th>Degree Program</th>
+                    <th>Assigned Department</th>
+                    <th>Designated Supervisor</th>
+                    <th>Rendered Progress</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    students.length === 0
+                      ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No trainee placements recorded yet. Click "+ Assign Trainee to Department" to begin.</td></tr>'
+                      : students
+                          .map(
+                            (s) => `
+                        <tr data-student-search="${escapeHtml((s.name + " " + (s.company || "") + " " + (s.supervisor || "") + " " + (s.program || "")).toLowerCase())}">
+                          <td>
+                            <strong>${escapeHtml(s.name)}</strong><br />
+                            <small style="color:var(--muted);">ID: ${escapeHtml(s.idNumber || "—")}</small>
+                          </td>
+                          <td>${escapeHtml(s.program || "BS Information Technology")}</td>
+                          <td><strong>${escapeHtml(s.company || "Unassigned")}</strong></td>
+                          <td>${escapeHtml(s.supervisor || "Unassigned")}</td>
+                          <td>
+                            <strong>${escapeHtml(s.hours || "0 / 480 hrs")}</strong>
+                            <div class="progress-bar" style="height:5px; margin-top:4px;">
+                              <i style="width:${escapeHtml(s.progress || "0%")};"></i>
+                            </div>
+                          </td>
+                          <td>
+                            <span class="status ${s.status === "Approved" || s.status === "Active" ? "status-green" : "status-yellow"}">
+                              ${s.status === "Approved" || s.status === "Active" ? "&#10003; Approved" : escapeHtml(s.status || "Pending")}
+                            </span>
+                          </td>
+                          <td>
+                            <button class="secondary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adminAssignStudent('${escapeHtml(s.name)}')">
+                              &#127970; Reassign / Edit
+                            </button>
+                          </td>
+                        </tr>
+                      `
+                          )
+                          .join("")
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnAdminAssignTrainee")?.addEventListener("click", () => openModal("assign-student"));
+
+      const searchInput = document.getElementById("adminPlacementSearch");
+      if (searchInput) {
+        searchInput.addEventListener("input", (e) => {
+          const query = e.target.value.toLowerCase().trim();
+          const rows = document.querySelectorAll("#adminPlacementsTable tbody tr[data-student-search]");
+          rows.forEach((row) => {
+            const text = row.getAttribute("data-student-search") || "";
+            row.style.display = text.includes(query) ? "" : "none";
+          });
+        });
+      }
+
+      window.adminFilterDept = function (deptName) {
+        if (searchInput) {
+          searchInput.value = deptName;
+          searchInput.dispatchEvent(new Event("input"));
+          searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      };
+      return;
+    }
+
+    // =========================================================================
+    // VIEW 2: INSTITUTIONAL AUDIT LOGS (admin-logs)
+    // =========================================================================
+    if (view === "admin-logs") {
+      const placementLogsCount = auditLogs.filter((l) => l.category === "Placement").length;
+      const clearanceLogsCount = auditLogs.filter((l) => l.category === "Clearance").length;
+      const attendanceLogsCount = auditLogs.filter((l) => l.category === "Attendance").length;
+      const evalLogsCount = auditLogs.filter((l) => l.category === "Evaluation").length;
+
+      el.viewContainer.innerHTML = `
+        <div class="page">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">Institutional Accountability & Security Trail</p>
+              <h1 class="page-title">Institutional Audit Logs</h1>
+              <p>System-wide activity trail of placement assignments, clearance evaluations, biometric DTR logs, and performance appraisals.</p>
+            </div>
+            <button class="secondary-button" id="btnAdminRefreshLogs" type="button">&#8635; Refresh Audit Trail</button>
+          </div>
+
+          <div class="stats-grid" style="margin-bottom:20px;">
+            <div class="stat-card">
+              <div class="stat-icon icon-green">&#128220;</div>
+              <strong>${auditLogs.length} Events</strong>
+              <span>Total Audit Trail</span>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon icon-blue">&#127970;</div>
+              <strong>${placementLogsCount} Placements</strong>
+              <span>Host Assignments</span>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon icon-coral">&#128196;</div>
+              <strong>${clearanceLogsCount} Clearances</strong>
+              <span>Evaluated Documents</span>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon icon-gold">&#128197;</div>
+              <strong>${attendanceLogsCount} DTR Logs</strong>
+              <span>Biometric Records</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Institutional System Activity History</h3>
+                <p>Timestamped chronological log of all actions performed across the ISPSC Practicum Portal</p>
+              </div>
+              <div style="display:flex; gap:10px; align-items:center;">
+                <input type="search" id="adminLogSearch" placeholder="Search logs..." style="padding:6px 12px; border-radius:6px; border:1px solid var(--line); font-size:12.5px; width:220px;" />
+              </div>
+            </div>
+
+            <!-- AUDIT CATEGORY FILTER TABS -->
+            <div class="sub-tabs" id="adminLogFilterTabs">
+              <button class="sub-tab active" data-log-cat="all" type="button">All Activities (${auditLogs.length})</button>
+              <button class="sub-tab" data-log-cat="Placement" type="button">Placements (${placementLogsCount})</button>
+              <button class="sub-tab" data-log-cat="Clearance" type="button">Clearances (${clearanceLogsCount})</button>
+              <button class="sub-tab" data-log-cat="Attendance" type="button">Attendance / DTR (${attendanceLogsCount})</button>
+              <button class="sub-tab" data-log-cat="Evaluation" type="button">Evaluations (${evalLogsCount})</button>
+              <button class="sub-tab" data-log-cat="User Accounts" type="button">Accounts</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table" id="adminLogsTable" aria-label="Institutional Audit Trail Table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Category</th>
+                    <th>Action / Event</th>
+                    <th>Initiator (Actor)</th>
+                    <th>Target Trainee / Unit</th>
+                    <th>Details</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    auditLogs.length === 0
+                      ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No audit events recorded yet.</td></tr>'
+                      : auditLogs
+                          .map((log) => {
+                            const badgeClass =
+                              log.category === "Placement"
+                                ? "status-blue"
+                                : log.category === "Clearance"
+                                ? "status-yellow"
+                                : log.category === "Attendance"
+                                ? "status-green"
+                                : log.category === "Evaluation"
+                                ? "status-coral"
+                                : "status-gold";
+
+                            const statusClass =
+                              log.status === "Approved" || log.status === "Present" || log.status === "Active" || log.status === "Completed"
+                                ? "status-green"
+                                : log.status === "Revision"
+                                ? "status-coral"
+                                : "status-yellow";
+
+                            const searchStr = (log.timestamp + " " + log.category + " " + log.action + " " + log.actor + " " + log.target + " " + log.details + " " + log.status).toLowerCase();
+
+                            return `
+                        <tr data-log-category="${escapeHtml(log.category)}" data-log-search="${escapeHtml(searchStr)}">
+                          <td><small style="color:var(--muted); font-weight:600;">${escapeHtml(log.timestamp)}</small></td>
+                          <td><span class="status ${badgeClass}">${escapeHtml(log.category)}</span></td>
+                          <td><strong>${escapeHtml(log.action)}</strong></td>
+                          <td>${escapeHtml(log.actor)}</td>
+                          <td><strong>${escapeHtml(log.target)}</strong></td>
+                          <td style="max-width:320px; font-size:12px; color:#49585f;">${escapeHtml(log.details)}</td>
+                          <td><span class="status ${statusClass}">${escapeHtml(log.status)}</span></td>
+                        </tr>
+                      `;
+                          })
+                          .join("")
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btnAdminRefreshLogs")?.addEventListener("click", async () => {
+        await refreshBackendState();
+        renderCurrentView();
+      });
+
+      // Filter tabs and search logic for audit logs
+      let activeCat = "all";
+      let activeQuery = "";
+
+      function filterAuditLogs() {
+        const rows = document.querySelectorAll("#adminLogsTable tbody tr[data-log-category]");
+        rows.forEach((row) => {
+          const cat = row.getAttribute("data-log-category");
+          const search = row.getAttribute("data-log-search") || "";
+          const matchesCat = activeCat === "all" || cat === activeCat;
+          const matchesQuery = !activeQuery || search.includes(activeQuery);
+          row.style.display = matchesCat && matchesQuery ? "" : "none";
+        });
+      }
+
+      document.querySelectorAll("#adminLogFilterTabs .sub-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("#adminLogFilterTabs .sub-tab").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          activeCat = btn.getAttribute("data-log-cat") || "all";
+          filterAuditLogs();
+        });
+      });
+
+      const logSearch = document.getElementById("adminLogSearch");
+      if (logSearch) {
+        logSearch.addEventListener("input", (e) => {
+          activeQuery = e.target.value.toLowerCase().trim();
+          filterAuditLogs();
+        });
+      }
+      return;
+    }
+
+    // =========================================================================
+    // DEFAULT VIEW: USER ACCOUNTS DIRECTORY (admin-users)
+    // =========================================================================
+    const studentsCount = users.filter((u) => u.roleKey === "student").length;
+    const supervisorsCount = users.filter((u) => u.roleKey === "supervisor").length;
+    const advisersCount = users.filter((u) => u.roleKey === "adviser").length;
+    const adminsCount = users.filter((u) => u.roleKey === "admin").length;
 
     el.viewContainer.innerHTML = `
       <div class="page">
         <div class="page-intro">
           <div>
-            <p class="eyebrow">System Administrator</p>
+            <p class="eyebrow">Portal Administration & User Management</p>
             <h1 class="page-title">User Accounts & Directory</h1>
-            <p>Manage system users, create faculty advisers, assign campus department supervisors, and oversee student accounts.</p>
+            <p>Manage system users, assign supervisor roles, coordinate faculty advisers, and oversee student accounts.</p>
           </div>
-          <button class="primary-button" id="btnAdminAddUser" type="button">&#43; Add User Account</button>
+          <button class="primary-button" id="btnAdminAddUser" type="button">&#43; Assign Supervisor Role</button>
+        </div>
+
+        <div class="stats-grid" style="margin-bottom:20px;">
+          <div class="stat-card">
+            <div class="stat-icon icon-blue">&#128101;</div>
+            <strong>${users.length} Users</strong>
+            <span>Total Registered</span>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon icon-green">&#127891;</div>
+            <strong>${studentsCount} Students</strong>
+            <span>OJT Trainees</span>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon icon-coral">&#127970;</div>
+            <strong>${supervisorsCount} Supervisors</strong>
+            <span>Department Mentors</span>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon icon-gold">&#128100;</div>
+            <strong>${advisersCount + adminsCount} Faculty/Admin</strong>
+            <span>Advisers & Portal Staff</span>
+          </div>
         </div>
 
         <div class="panel">
           <div class="panel-header">
             <div>
-              <h3>All Registered Users</h3>
-              <p>Active directory of institutional students, campus department supervisors, and faculty advisers</p>
+              <h3>Institutional User Directory</h3>
+              <p>Active accounts of students, department supervisors, faculty advisers, and administrators</p>
             </div>
-            <span class="score-badge">${users.length} Registered Accounts</span>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <input type="search" id="adminUserSearch" placeholder="Search user directory..." style="padding:6px 12px; border-radius:6px; border:1px solid var(--line); font-size:12.5px; width:220px;" />
+            </div>
+          </div>
+
+          <!-- ROLE FILTER TABS -->
+          <div class="sub-tabs" id="adminUserFilterTabs">
+            <button class="sub-tab active" data-user-role="all" type="button">All Accounts (${users.length})</button>
+            <button class="sub-tab" data-user-role="student" type="button">Students (${studentsCount})</button>
+            <button class="sub-tab" data-user-role="supervisor" type="button">Supervisors (${supervisorsCount})</button>
+            <button class="sub-tab" data-user-role="adviser" type="button">Advisers (${advisersCount})</button>
+            <button class="sub-tab" data-user-role="admin" type="button">Admins (${adminsCount})</button>
           </div>
 
           <div class="table-wrap">
-            <table class="data-table" aria-label="System Users Table">
+            <table class="data-table" id="adminUsersTable" aria-label="System Users Table">
               <thead>
                 <tr>
                   <th>Full Name</th>
                   <th>Username</th>
-                  <th>Email</th>
+                  <th>Email Address</th>
                   <th>System Role</th>
                   <th>Department / Office</th>
+                  <th>Registered</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 ${
                   users.length === 0
-                    ? '<tr><td colspan="5" style="text-align:center; padding:24px; color:#6c7b80;">No user accounts found.</td></tr>'
+                    ? '<tr><td colspan="7" style="text-align:center; padding:24px; color:#6c7b80;">No user accounts found.</td></tr>'
                     : users
-                        .map(
-                          (u) => `
-                      <tr>
-                        <td><strong>${escapeHtml(u.name)}</strong></td>
+                        .map((u) => {
+                          const roleBadgeClass =
+                            u.roleKey === "supervisor"
+                              ? "status-green"
+                              : u.roleKey === "adviser"
+                              ? "status-coral"
+                              : u.roleKey === "admin"
+                              ? "status-gold"
+                              : "status-blue";
+
+                          const searchStr = (u.name + " " + u.username + " " + u.email + " " + (u.department || "") + " " + u.role).toLowerCase();
+
+                          return `
+                      <tr data-user-role-key="${escapeHtml(u.roleKey || "student")}" data-user-search="${escapeHtml(searchStr)}">
+                        <td>
+                          <strong>${escapeHtml(u.name)}</strong><br />
+                          <small style="color:var(--muted);">ID: ${escapeHtml(u.idNumber || "—")}</small>
+                        </td>
                         <td>${escapeHtml(u.username)}</td>
                         <td>${escapeHtml(u.email)}</td>
-                        <td><span class="status status-blue">${escapeHtml(u.role)}</span></td>
+                        <td><span class="status ${roleBadgeClass}">${escapeHtml(u.role)}</span></td>
                         <td>${escapeHtml(u.department || "General")}</td>
+                        <td><small style="color:var(--muted);">${escapeHtml(u.createdAt || "—")}</small></td>
+                        <td>
+                          ${
+                            u.roleKey === "supervisor"
+                              ? `<button class="secondary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adminAssignRole('${escapeHtml(u.name)}')">&#9881; Assign Role</button>`
+                              : u.roleKey === "student"
+                              ? `<button class="secondary-button" style="padding:4px 9px; font-size:11.5px;" onclick="window.adminAssignStudent('${escapeHtml(u.name)}')">&#127970; Assign Dept</button>`
+                              : `<span style="color:var(--muted); font-size:12px;">Active</span>`
+                          }
+                        </td>
                       </tr>
-                    `
-                        )
+                    `;
+                        })
                         .join("")
                 }
               </tbody>
@@ -1476,20 +2864,58 @@
     `;
 
     document.getElementById("btnAdminAddUser")?.addEventListener("click", () => openModal("admin-user"));
+
+    // Filter tabs and search logic for user directory
+    let activeUserRole = "all";
+    let activeUserQuery = "";
+
+    function filterUsers() {
+      const rows = document.querySelectorAll("#adminUsersTable tbody tr[data-user-role-key]");
+      rows.forEach((row) => {
+        const role = row.getAttribute("data-user-role-key");
+        const search = row.getAttribute("data-user-search") || "";
+        const matchesRole = activeUserRole === "all" || role === activeUserRole;
+        const matchesQuery = !activeUserQuery || search.includes(activeUserQuery);
+        row.style.display = matchesRole && matchesQuery ? "" : "none";
+      });
+    }
+
+    document.querySelectorAll("#adminUserFilterTabs .sub-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#adminUserFilterTabs .sub-tab").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        activeUserRole = btn.getAttribute("data-user-role") || "all";
+        filterUsers();
+      });
+    });
+
+    const userSearch = document.getElementById("adminUserSearch");
+    if (userSearch) {
+      userSearch.addEventListener("input", (e) => {
+        activeUserQuery = e.target.value.toLowerCase().trim();
+        filterUsers();
+      });
+    }
   }
+
+  window.adminAssignRole = function (supervisorName) {
+    openModal("admin-user", { supervisorName, name: supervisorName });
+  };
+
+  window.adminAssignStudent = function (studentName) {
+    openModal("assign-student", { student: studentName });
+  };
 
   // =========================================================================
   // MODAL ACTIONS & HANDLERS
   // =========================================================================
 
-  
   function openProfileModal() {
     if (!state.currentUser) return;
     const user = state.currentUser;
     const data = state.practicumData || {};
     const dtrLogs = data.attendanceLogs || [];
     const totalHours = data.totalHours || 0;
-    const remainingHours = Math.max(0, 480 - totalHours);
     const app = data.application || {};
 
     let roleTitle = "OJT Practicum Trainee";
@@ -1513,7 +2939,7 @@
             <span class="score-badge">${totalHours} / 480 hrs rendered</span>
           </div>
           <p style="font-size:12px; color:#6a7c82; margin:0 0 12px;">
-            Official shift logs recorded by you and verified by your Department Supervisor. You can record multiple time entries/shifts per day.
+            Official shift logs recorded by you and verified by your Department Supervisor.
           </p>
           <div class="table-wrap" style="max-height:220px; overflow-y:auto;">
             <table class="data-table" style="font-size:12px;">
@@ -1558,7 +2984,7 @@
         <div style="margin-top:20px; border-top:1px solid #d4e3cb; padding-top:16px;">
           <h4 style="margin:0 0 8px; font-size:14.5px; color:#17212b; font-weight:700;">Department Supervision Scope</h4>
           <p style="font-size:12px; color:#6a7c82; margin:0 0 12px;">
-            Designated Campus Department / Unit: <strong>${escapeHtml(user.department || "Management Information Systems")}</strong>. You can evaluate student clearance documents, verify multiple DTR attendance logs, and provide final departmental approval.
+            Host Department: <strong>${escapeHtml(user.department || "Not Assigned")}</strong>. You can evaluate student clearance documents, verify daily attendance logs, and grant official department approval for your assigned trainees.
           </p>
         </div>
       `;
@@ -1567,7 +2993,7 @@
         <div style="margin-top:20px; border-top:1px solid #d4e3cb; padding-top:16px;">
           <h4 style="margin:0 0 8px; font-size:14.5px; color:#17212b; font-weight:700;">Practicum Advisory Scope</h4>
           <p style="font-size:12px; color:#6a7c82; margin:0 0 12px;">
-            College / Unit: <strong>${escapeHtml(user.department || "College of Computing Studies")}</strong>. As OJT Adviser, you assign practicum students to their deployed departments and monitor clearance progress.
+            Faculty Coordinator: <strong>${escapeHtml(user.department || "Not Assigned")}</strong>. As OJT Adviser, you assign practicum students to campus host departments and monitor their institutional clearance progress.
           </p>
         </div>
       `;
@@ -1586,7 +3012,7 @@
         <div class="profile-modal-grid">
           <div class="profile-info-card">
             <small>Student / Institutional ID</small>
-            <strong>${escapeHtml(user.idNumber || user.id_number || "2026-TG-001")}</strong>
+            <strong>${escapeHtml(user.idNumber || user.id_number || "—")}</strong>
           </div>
           <div class="profile-info-card">
             <small>Username</small>
@@ -1598,18 +3024,18 @@
           </div>
           <div class="profile-info-card">
             <small>College / Department</small>
-            <strong>${escapeHtml(user.department || "BS Information Technology")}</strong>
+            <strong>${escapeHtml(user.department || "—")}</strong>
           </div>
           ${
             user.role === "student"
               ? `
             <div class="profile-info-card">
               <small>Assigned Department</small>
-              <strong>${escapeHtml(app.company || "MIS / ICT Center")}</strong>
+              <strong>${escapeHtml(app.company || "Not Assigned")}</strong>
             </div>
             <div class="profile-info-card">
               <small>Department Supervisor</small>
-              <strong>${escapeHtml(app.supervisor || "Engr. Roberto Gomez")}</strong>
+              <strong>${escapeHtml(app.supervisor || "Not Assigned")}</strong>
             </div>
           `
               : ""
@@ -1635,6 +3061,7 @@
     if (!el.modalForm) return;
 
     el.modalForm.dataset.modalType = modalType;
+    if (el.modalBackdrop) el.modalBackdrop.dataset.modalType = modalType;
     let title = "Action Form";
     let kicker = "Practicum Portal";
     let desc = "Please fill in the required details below.";
@@ -1657,9 +3084,9 @@
         <label for="attSchedule">
           Shift Schedule Type
           <select id="attSchedule" name="attSchedule" required aria-required="true">
-            <option value="Regular (8h)" selected>Regular Full-Day Shift (8.00 hrs: 8:00 AM – 5:00 PM)</option>
-            <option value="Morning Shift (4h)">Morning Half-Day Shift (4.00 hrs: 8:00 AM – 12:00 PM)</option>
-            <option value="Afternoon Shift (4h)">Afternoon Half-Day Shift (4.00 hrs: 1:00 PM – 5:00 PM)</option>
+            <option value="Regular (8h)" selected>Regular Full-Day Shift (8.00 hrs: 8:00 AM &ndash; 5:00 PM)</option>
+            <option value="Morning Shift (4h)">Morning Half-Day Shift (4.00 hrs: 8:00 AM &ndash; 12:00 PM)</option>
+            <option value="Afternoon Shift (4h)">Afternoon Half-Day Shift (4.00 hrs: 1:00 PM &ndash; 5:00 PM)</option>
           </select>
         </label>
         <div class="form-grid-2">
@@ -1674,7 +3101,7 @@
         </div>
         <label for="attRemarks">
           Department Duty Remarks (Optional)
-          <textarea id="attRemarks" name="attRemarks" rows="2" placeholder="e.g., Conducted campus lab PC hardware diagnostics and cable management..."></textarea>
+          <textarea id="attRemarks" name="attRemarks" rows="2"></textarea>
         </label>
       `;
     } else if (modalType === "journal") {
@@ -1686,7 +3113,7 @@
       fieldsHtml = `
         <label for="jTitle">
           Workplace Focus / Task Title
-          <input type="text" id="jTitle" name="jTitle" placeholder="e.g., Campus Network Maintenance & Lab Audit" required aria-required="true" />
+          <input type="text" id="jTitle" name="jTitle" required aria-required="true" />
         </label>
         <label for="jHours">
           Rendered Shift Hours
@@ -1694,7 +3121,7 @@
         </label>
         <label for="jReflection">
           Reflection, Key Takeaways & Output Description
-          <textarea id="jReflection" name="jReflection" rows="5" placeholder="Document what you accomplished, tools used, and problem-solving steps..." required aria-required="true"></textarea>
+          <textarea id="jReflection" name="jReflection" rows="5" required aria-required="true"></textarea>
         </label>
       `;
     } else if (modalType === "task") {
@@ -1717,7 +3144,7 @@
         ${studentSelectHtml}
         <label for="taskTitle">
           Task Title & Scope
-          <input type="text" id="taskTitle" name="taskTitle" placeholder="e.g., Campus Network Maintenance & Lab Audit" required aria-required="true" />
+          <input type="text" id="taskTitle" name="taskTitle" required aria-required="true" />
         </label>
         <label for="taskDue">
           Target Due Date
@@ -1725,7 +3152,7 @@
         </label>
         <label for="taskDetails">
           Task Instructions / Department Specifications (Optional)
-          <textarea id="taskDetails" name="taskDetails" rows="3" placeholder="Provide instructions, expected outputs, or guidelines for the trainee..."></textarea>
+          <textarea id="taskDetails" name="taskDetails" rows="3"></textarea>
         </label>
       `;
     } else if (modalType === "report") {
@@ -1735,39 +3162,45 @@
       submitLabel = "Submit Report";
 
       fieldsHtml = `
+        <div class="modal-form-section">
+          <p class="modal-section-label">Report identification</p>
         <label for="repTitle">
           Report Title / Week Identifier
-          <input type="text" id="repTitle" name="repTitle" placeholder="e.g., Week 1 Accomplishment Report" required aria-required="true" />
+          <input type="text" id="repTitle" name="repTitle" required aria-required="true" />
         </label>
+        </div>
+        <div class="modal-form-section">
+          <p class="modal-section-label">Accomplishment summary</p>
         <label for="repSummary">
           Weekly Synthesis Summary
-          <textarea id="repSummary" name="repSummary" rows="5" placeholder="Summarize your weekly tasks, milestones achieved, and hours rendered..." required aria-required="true"></textarea>
+          <textarea id="repSummary" name="repSummary" rows="5" required aria-required="true"></textarea>
         </label>
+        </div>
       `;
     } else if (modalType === "requirement") {
       kicker = "Document Clearance";
       title = "Upload Institutional Requirement";
-      desc = "Submit your clearance document for Adviser verification.";
+      desc = "Submit your clearance document for Adviser / Supervisor verification.";
       submitLabel = "Submit Document for Review";
 
-      const defaultName = context.reqName || "Campus Placement & Endorsement Form";
+      const defaultName = context.reqName || "Parent Consent Form";
 
       fieldsHtml = `
         <label for="reqSelect">
           Requirement Document Type
           <select id="reqSelect" name="reqSelect" required aria-required="true">
-            <option value="Campus Placement & Endorsement Form" ${defaultName === "Campus Placement & Endorsement Form" || defaultName === "Memorandum of Agreement" ? "selected" : ""}>Campus Placement & Endorsement Form</option>
             <option value="Parent Consent Form" ${defaultName === "Parent Consent Form" ? "selected" : ""}>Notarized Parent/Guardian Consent Form</option>
             <option value="Weekly Accomplishment Report" ${defaultName === "Weekly Accomplishment Report" ? "selected" : ""}>Weekly Accomplishment Report</option>
-            <option value="Medical Clearance Renewal" ${defaultName === "Medical Clearance Renewal" ? "selected" : ""}>Updated Medical Health Certificate</option>
+            <option value="Medical" ${defaultName === "Medical" ? "selected" : ""}>Medical</option>
           </select>
         </label>
         <label for="reqFile">
-          Attach File (PDF, DOCX, or Scanned Image)
-          <input type="file" id="reqFile" name="reqFile" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" required aria-required="true" />
+          Attach File (PDF or Scanned Image)
+          <input type="file" id="reqFile" name="reqFile" accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif" required aria-required="true" />
+          <span id="reqFileStatus" class="file-selection-status" aria-live="polite">No document selected</span>
         </label>
         <p style="font-size:11.5px; color:var(--muted); margin:4px 0 14px;">
-          &bull; Status will be marked as <strong>Pending Review</strong> until verified by your OJT Adviser.
+          &bull; Status will be marked as <strong>Pending Review</strong> until verified by your Supervisor / Adviser.
         </p>
       `;
     } else if (modalType === "evaluation") {
@@ -1776,12 +3209,22 @@
       desc = "Grade the trainee based on technical competency, work ethic, and attendance (1–100 scale).";
       submitLabel = "Submit Workplace Evaluation";
 
+      const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Trainee</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="evalStudent" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="evalStudentSelect">
+            Select Trainee
+            <select id="evalStudentSelect" name="evalStudent" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")}
+            </select>
+          </label>`;
+
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Trainee</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="evalStudent" value="${escapeHtml(context.student || "")}" />
-        </div>
+        ${studentHtml}
         <label for="evalRating">
           Performance Rating (1 to 100)
           <input type="number" id="evalRating" name="evalRating" min="1" max="100" value="95" required aria-required="true" />
@@ -1792,7 +3235,7 @@
         </div>
         <label for="evalComment" style="margin-top:14px;">
           Evaluator Comments & Performance Remarks
-          <textarea id="evalComment" name="evalComment" rows="4" placeholder="Provide notes on student performance, technical strengths, and growth areas..." required aria-required="true"></textarea>
+          <textarea id="evalComment" name="evalComment" rows="4" required aria-required="true"></textarea>
         </label>
       `;
     } else if (modalType === "feedback") {
@@ -1801,19 +3244,29 @@
       desc = "Share actionable observations, feedback, and commended achievements.";
       submitLabel = "Post Mentorship Feedback";
 
+      const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Trainee</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="fbStudent" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="fbStudentSelect">
+            Select Trainee
+            <select id="fbStudentSelect" name="fbStudent" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")}
+            </select>
+          </label>`;
+
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Trainee</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="fbStudent" value="${escapeHtml(context.student || "")}" />
-        </div>
+        ${studentHtml}
         <label for="fbRating">
           Weekly Commendation Score (1 to 100)
           <input type="number" id="fbRating" name="fbRating" min="1" max="100" value="92" required aria-required="true" />
         </label>
         <label for="fbNotes">
           Detailed Supervisory Feedback & Recommendations
-          <textarea id="fbNotes" name="fbNotes" rows="4" placeholder="Write feedback on problem solving, team communication, and tasks performed..." required aria-required="true"></textarea>
+          <textarea id="fbNotes" name="fbNotes" rows="4" required aria-required="true"></textarea>
         </label>
       `;
     } else if (modalType === "review-attendance") {
@@ -1822,12 +3275,22 @@
       desc = "Confirm attendance logs and sign off on rendered hours.";
       submitLabel = "Save Attendance Verification";
 
+      const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Trainee</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="attStudent" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="attStudentSelect">
+            Select Trainee
+            <select id="attStudentSelect" name="attStudent" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")}
+            </select>
+          </label>`;
+
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Trainee</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="attStudent" value="${escapeHtml(context.student || "")}" />
-        </div>
+        ${studentHtml}
         <label for="attDecision">
           Verification Decision
           <select id="attDecision" name="attDecision" required aria-required="true">
@@ -1837,7 +3300,7 @@
         </label>
         <label for="attReviewRemarks">
           Supervisor Remarks / Verification Notes
-          <textarea id="attReviewRemarks" name="attReviewRemarks" rows="3" placeholder="e.g., Verified shift completion on campus; performed duties diligently."></textarea>
+          <textarea id="attReviewRemarks" name="attReviewRemarks" rows="3"></textarea>
         </label>
       `;
     } else if (modalType === "review-journal") {
@@ -1846,12 +3309,22 @@
       desc = "Approve reflective journal entry or request clarification.";
       submitLabel = "Submit Journal Decision";
 
+      const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Trainee</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="journalStudent" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="journalStudentSelect">
+            Select Trainee
+            <select id="journalStudentSelect" name="journalStudent" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")}
+            </select>
+          </label>`;
+
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Trainee</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="journalStudent" value="${escapeHtml(context.student || "")}" />
-        </div>
+        ${studentHtml}
         <label for="journalDecision">
           Review Decision
           <select id="journalDecision" name="journalDecision" required aria-required="true">
@@ -1861,12 +3334,12 @@
         </label>
         <label for="journalRemarks">
           Supervisor Feedback & Remarks
-          <textarea id="journalRemarks" name="journalRemarks" rows="3" placeholder="e.g., Great insights on troubleshooting the campus network switch."></textarea>
+          <textarea id="journalRemarks" name="journalRemarks" rows="3"></textarea>
         </label>
       `;
     } else if (modalType === "assign-student") {
       kicker = "OJT Adviser Placement";
-      title = `Assign Trainee to Department`;
+      title = "Assign Trainee to Department";
       desc = "Assign student to their host campus department or unit. The student will then submit documentary requirements to the Department Supervisor for approval.";
       submitLabel = "Confirm Department Assignment";
 
@@ -1874,6 +3347,8 @@
       const supervisors = state.practicumData.supervisors || [];
 
       fieldsHtml = `
+        <div class="modal-form-section">
+          <p class="modal-section-label">Trainee placement</p>
         <label for="assignStudent">
           Select OJT Student
           <select id="assignStudent" name="assignStudent" required aria-required="true">
@@ -1884,202 +3359,236 @@
           Assigned Host Department / Office
           <select id="assignCompany" name="assignCompany" required aria-required="true">
             <option value="Management Information Systems (MIS) / ICT Center">Management Information Systems (MIS) / ICT Center</option>
-            <option value="Registrar's Office">Office of the Campus Registrar</option>
+            <option value="Office of the Campus Registrar">Office of the Campus Registrar</option>
+            <option value="Campus Library & Learning Resource Center">Campus Library & Learning Resource Center</option>
             <option value="Office of the Campus Dean">Office of the Campus Dean</option>
-            <option value="Library & Information Services">Campus Library & Learning Resource Center</option>
-            <option value="Administrative & Finance Services">Administrative & Finance Office</option>
-            <option value="College of Computing Studies Laboratory">CCS Computer Laboratories</option>
+            <option value="Administrative & Finance Services">Administrative & Finance Services</option>
+            <option value="College of Computing Studies Laboratory">College of Computing Studies Laboratory</option>
+            <option value="Campus Clinic / Health Services">Campus Clinic / Health Services</option>
           </select>
+        </label>
+        <label for="assignSupervisorPicker">
+          Select Department Supervisor
+          <select id="assignSupervisorPicker" name="assignSupervisorPicker" required aria-required="true"></select>
         </label>
         <label for="assignDeptUnit">
           Specific Section / Sub-unit
-          <input type="text" id="assignDeptUnit" name="assignDeptUnit" value="Network Administration & Systems Development Unit" placeholder="e.g. Systems Development Unit, Records Section" required aria-required="true" />
+          <input type="text" id="assignDeptUnit" name="assignDeptUnit" value="" required aria-required="true" />
         </label>
+        </div>
+        <div class="modal-form-section">
+          <p class="modal-section-label">Supervisor contact</p>
         <div class="form-grid-2">
           <label for="assignSupervisor">
-            Designated Department Supervisor
-            <input type="text" id="assignSupervisor" name="assignSupervisor" value="${supervisors[0]?.name || "Engr. Roberto Gomez"}" required aria-required="true" />
+            Designated Supervisor Name
+            <input type="text" id="assignSupervisor" name="assignSupervisor" value="" required aria-required="true" readonly />
           </label>
           <label for="assignSupervisorEmail">
             Supervisor Official Email
-            <input type="email" id="assignSupervisorEmail" name="assignSupervisorEmail" value="${supervisors[0]?.email || "roberto.gomez@ispsc.edu.ph"}" required aria-required="true" />
+            <input type="email" id="assignSupervisorEmail" name="assignSupervisorEmail" value="" required aria-required="true" readonly />
           </label>
         </div>
+        </div>
+        <div class="modal-form-section">
+          <p class="modal-section-label">Assignment notes</p>
         <label for="assignNotes">
           Deployment Directives & Notes (Optional)
-          <textarea id="assignNotes" name="assignNotes" rows="2" placeholder="e.g., Assigned for 480 hours in campus network maintenance. Advise student to submit endorsement and health clearances to Supervisor."></textarea>
+          <textarea id="assignNotes" name="assignNotes" rows="2"></textarea>
         </label>
+        </div>
       `;
     } else if (modalType === "approve-student") {
       kicker = "Supervisor Department Approval";
-      title = `Approve Student Placement: ${escapeHtml(context.student || "Trainee")}`;
+      title = context.student ? `Approve Placement: ${escapeHtml(context.student)}` : "Approve Student Placement";
       desc = "Review student documents and confirm official acceptance and deployment in your department.";
       submitLabel = "Save Department Decision";
 
+      const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
+
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Trainee</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="appStudentName" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="appStudentSelect">
+            Select Student Trainee
+            <select id="appStudentSelect" name="appStudentName" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${escapeHtml(s.program || "Trainee")})</option>`).join("")}
+            </select>
+          </label>`;
+
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Trainee</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="appStudentName" value="${escapeHtml(context.student || "")}" />
-        </div>
+        ${studentHtml}
         <label for="appDecision">
           Department Decision
           <select id="appDecision" name="appDecision" required aria-required="true">
-            <option value="Active" selected>Approve & Accept Trainee (Activate OJT)</option>
+            <option value="Approved" selected>Approve Trainee (Activate Deployment)</option>
             <option value="Revision">Return Documents for Revision / Incomplete</option>
             <option value="Pending">Hold / Keep Pending</option>
           </select>
         </label>
         <label for="appSupervisorNotes">
           Supervisor Notes / Acceptance Remarks
-          <textarea id="appSupervisorNotes" name="appSupervisorNotes" rows="3" placeholder="e.g., Trainee documents verified and accepted. Trainee may commence daily DTR logging."></textarea>
+          <textarea id="appSupervisorNotes" name="appSupervisorNotes" rows="3"></textarea>
         </label>
       `;
     } else if (modalType === "review-requirement") {
       kicker = state.currentRole === "supervisor" ? "Supervisor Document Evaluation" : "Adviser Document Clearance";
-      title = `Evaluate Document for ${escapeHtml(context.student || "Student")}`;
+      title = context.student ? `Evaluate Document for ${escapeHtml(context.student)}` : "Evaluate Clearance Document";
       desc = "Evaluate the submitted clearance document and provide feedback or approval.";
-      submitLabel = "Save Document Evaluation";
+      submitLabel = "Save Document Review";
 
-      const reqTarget = context.reqName || "Campus Placement & Endorsement Form";
+      const students = state.practicumData.students || (state.practicumData.supervisorData && state.practicumData.supervisorData.students) || [];
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Student</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="reqStudent" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="reqStudentSelect">
+            Select Student
+            <select id="reqStudentSelect" name="reqStudent" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")}
+            </select>
+          </label>`;
+
+      const reqTarget = context.reqName || "Parent Consent Form";
+      const requirementHtml = context.reqName
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Clearance</span>
+            <strong>${escapeHtml(context.reqName)}</strong>
+            <input type="hidden" name="reqTarget" value="${escapeHtml(context.reqName)}" />
+          </div>`
+        : `<label for="reqTarget">
+            Document To Evaluate
+            <select id="reqTarget" name="reqTarget" required aria-required="true">
+              <option value="Parent Consent Form" ${reqTarget === "Parent Consent Form" ? "selected" : ""}>Notarized Parent/Guardian Consent Form</option>
+              <option value="Weekly Accomplishment Report" ${reqTarget === "Weekly Accomplishment Report" ? "selected" : ""}>Weekly Accomplishment Report</option>
+              <option value="Medical" ${reqTarget === "Medical" ? "selected" : ""}>Medical</option>
+            </select>
+          </label>`;
 
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Student</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="reqStudent" value="${escapeHtml(context.student || "")}" />
+        <div class="modal-form-section">
+          <p class="modal-section-label">Document to review</p>
+        ${studentHtml}
+        ${requirementHtml}
         </div>
-        <label for="reqTarget">
-          Document To Evaluate
-          <select id="reqTarget" name="reqTarget" required aria-required="true">
-            <option value="Campus Placement & Endorsement Form" ${reqTarget === "Campus Placement & Endorsement Form" ? "selected" : ""}>Campus Placement & Endorsement Form</option>
-            <option value="Parent Consent Form" ${reqTarget === "Parent Consent Form" ? "selected" : ""}>Notarized Parent/Guardian Consent Form</option>
-            <option value="Weekly Accomplishment Report" ${reqTarget === "Weekly Accomplishment Report" ? "selected" : ""}>Weekly Accomplishment Report</option>
-            <option value="Medical Clearance Renewal" ${reqTarget === "Medical Clearance Renewal" ? "selected" : ""}>Medical Clearance Renewal</option>
-          </select>
-        </label>
+        <div class="modal-form-section">
+          <p class="modal-section-label">Review decision</p>
         <label for="reqDecision">
           Evaluation Decision
           <select id="reqDecision" name="reqDecision" required aria-required="true">
-            <option value="Approved" selected>Approve Document</option>
+            <option value="Pending review" selected>Keep Pending Review</option>
+            <option value="Approved">Approve Document</option>
             <option value="Revision">Return for Revision</option>
-            <option value="Pending review">Keep Pending Review</option>
           </select>
         </label>
         <label for="reqComments">
           Evaluator Feedback & Remarks
-          <textarea id="reqComments" name="reqComments" rows="3" placeholder="e.g., Verified document complete and signed by authorized officials."></textarea>
+          <textarea id="reqComments" name="reqComments" rows="3"></textarea>
         </label>
+        </div>
       `;
     } else if (modalType === "review-report") {
       kicker = "Adviser Report Review";
-      title = `Review Accomplishment Report for ${escapeHtml(context.student || "Student")}`;
-      desc = "Verify weekly synthesis report and submit feedback.";
-      submitLabel = "Submit Report Review";
+      title = context.student ? `Review Report for ${escapeHtml(context.student)}` : "Review Accomplishment Report";
+      desc = "Review trainee accomplishment report and provide academic feedback.";
+      submitLabel = "Save Report Review";
+
+      const students = state.practicumData.students || [];
+      const studentHtml = context.student
+        ? `<div class="modal-student-banner">
+            <span class="student-pill">Advisee</span> 
+            <strong>${escapeHtml(context.student)}</strong>
+            <input type="hidden" name="reportStudent" value="${escapeHtml(context.student)}" />
+          </div>`
+        : `<label for="repStudentSelect">
+            Select Advisee
+            <select id="repStudentSelect" name="reportStudent" required aria-required="true">
+              ${students.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join("")}
+            </select>
+          </label>`;
 
       fieldsHtml = `
-        <div class="modal-student-banner">
-          <span class="student-pill">Student</span> 
-          <strong>${escapeHtml(context.student || "Selected Student")}</strong>
-          <input type="hidden" name="reportStudent" value="${escapeHtml(context.student || "")}" />
+        <div class="modal-form-section">
+          <p class="modal-section-label">Report owner</p>
+        ${studentHtml}
         </div>
+        <div class="modal-form-section">
+          <p class="modal-section-label">Review outcome</p>
         <label for="reportDecision">
-          Verification Decision
+          Academic Decision
           <select id="reportDecision" name="reportDecision" required aria-required="true">
-            <option value="Approved" selected>Approve Weekly Accomplishment Report</option>
+            <option value="Approved" selected>Accept & Approve Report</option>
             <option value="Revision">Request Revision</option>
           </select>
         </label>
         <label for="reportComments">
           Adviser Feedback
-          <textarea id="reportComments" name="reportComments" rows="3" placeholder="e.g., Thorough report aligned with curriculum objectives."></textarea>
+          <textarea id="reportComments" name="reportComments" rows="3"></textarea>
         </label>
-      `;
-    } else if (modalType === "placement") {
-      kicker = "Department Placement";
-      title = "Update Placement Information";
-      desc = "Submit your assigned campus department, designated office/unit, and supervisor details.";
-      submitLabel = "Save Placement Details";
-
-      const app = state.practicumData.application || {};
-
-      fieldsHtml = `
-        <label for="appOrg">
-          Campus Department / Office Name
-          <input type="text" id="appOrg" name="appOrg" value="${escapeHtml(app.company || "")}" placeholder="e.g., MIS / ICT Center, Registrar's Office, Dean's Office" required aria-required="true" />
-        </label>
-        <label for="appDept">
-          Specific Unit / Section
-          <input type="text" id="appDept" name="appDept" value="${escapeHtml(app.department || "")}" placeholder="e.g., Systems Development Unit, Records Section" required aria-required="true" />
-        </label>
-        <div class="form-grid-2">
-          <label for="appSupervisor">
-            Supervisor Full Name
-            <input type="text" id="appSupervisor" name="appSupervisor" value="${escapeHtml(app.supervisor || "")}" placeholder="e.g., Engr. Roberto Gomez" required aria-required="true" />
-          </label>
-          <label for="appEmail">
-            Supervisor Official Email
-            <input type="email" id="appEmail" name="appEmail" value="${escapeHtml(app.supervisorEmail || "")}" placeholder="e.g., roberto.gomez@ispsc.edu.ph" required aria-required="true" />
-          </label>
         </div>
       `;
-        } else if (modalType === "assign-student") {
-      const student = document.getElementById("assignStudent").value;
-      const company_name = document.getElementById("assignCompany").value;
-      const department = document.getElementById("assignDeptUnit").value;
-      const supervisor_name = document.getElementById("assignSupervisor").value;
-      const supervisor_email = document.getElementById("assignSupervisorEmail").value;
-      const notes = document.getElementById("assignNotes").value;
+    } else if (modalType === "adviser-records") {
+      kicker = "Adviser Student Records";
+      title = context.student ? `Records for ${escapeHtml(context.student)}` : "Student Records";
+      desc = "Review placement, clearance, progress, and supervisor appraisal details for this advisee.";
+      submitLabel = "Close Records";
 
-      const res = await apiRequest("/practicum/assign-student", "POST", {
-        student,
-        company_name,
-        department,
-        supervisor_name,
-        supervisor_email,
-        notes,
-      });
-
-      if (res && res.success) {
-        showToast(res.message);
-      } else {
-        showToast(res?.error || "Department assignment saved.");
-      }
-    } else if (modalType === "approve-student") {
-      const student = el.modalForm.querySelector('input[name="appStudentName"]').value;
-      const decision = document.getElementById("appDecision").value;
-      const notes = document.getElementById("appSupervisorNotes").value;
-
-      const res = await apiRequest("/practicum/approve-student", "POST", {
-        student,
-        decision,
-        notes,
-      });
-
-      if (res && res.success) {
-        showToast(res.message);
-      } else {
-        showToast(res?.error || "Student approval status updated.");
-      }
+      const student = (state.practicumData.students || []).find((item) => item.name === context.student);
+      fieldsHtml = student
+        ? `
+          <div class="modal-form-section">
+            <p class="modal-section-label">Placement</p>
+            <p><strong>Host Department:</strong> ${escapeHtml(student.company || "Unassigned")}</p>
+            <p><strong>Unit:</strong> ${escapeHtml(student.department || "Unassigned")}</p>
+            <p><strong>Supervisor:</strong> ${escapeHtml(student.supervisor || "Unassigned")}</p>
+          </div>
+          <div class="modal-form-section">
+            <p class="modal-section-label">Progress & Clearance</p>
+            <p><strong>Hours:</strong> ${escapeHtml(student.hours || "0 / 480 hrs")}</p>
+            <p><strong>Clearance:</strong> ${escapeHtml(student.requirements || "No records")}</p>
+            <p><strong>Status:</strong> ${escapeHtml(student.status || "Pending")}</p>
+          </div>
+          <div class="modal-form-section">
+            <p class="modal-section-label">Supervisor Appraisal</p>
+            <p><strong>Score:</strong> ${student.evalRating ? `${escapeHtml(student.evalRating)} / 100` : "Pending"}</p>
+            <p><strong>Grade:</strong> ${escapeHtml(student.evalGrade || "Pending")}</p>
+          </div>
+        `
+        : '<p>No records found for this student.</p>';
     } else if (modalType === "admin-user") {
-      kicker = "User Management";
-      title = "Create New User Account";
-      desc = "Create a login account for an adviser, supervisor, or student.";
-      submitLabel = "Create User";
+      kicker = "System Role Management";
+      title = "Assign Supervisor Role & Permissions";
+      desc = "Assign system roles (Adviser, Supervisor, Student, Administrator) and update department assignments.";
+      submitLabel = "Save Role Assignment";
+
+      const supervisors = state.practicumData.supervisors || [];
+      const allUsers = state.practicumData.allUsers || [];
+      const preselected = context.supervisorName || context.name || (supervisors[0] ? supervisors[0].name : "");
 
       fieldsHtml = `
         <label for="adminName">
-          Full Name
-          <input type="text" id="adminName" name="adminName" placeholder="e.g., Prof. Maria Elena Santos" required aria-required="true" />
+          Select Department Supervisor / User
+          <select id="adminName" name="adminName" required aria-required="true">
+            ${supervisors.map((s) => `<option value="${escapeHtml(s.name)}" ${preselected === s.name ? "selected" : ""}>${escapeHtml(s.name)} &mdash; Supervisor (${escapeHtml(s.department || "General")})</option>`).join("")}
+            ${allUsers.filter((u) => u.roleKey !== "supervisor").map((u) => `<option value="${escapeHtml(u.name)}" ${preselected === u.name ? "selected" : ""}>${escapeHtml(u.name)} &mdash; ${escapeHtml(u.role)}</option>`).join("")}
+          </select>
         </label>
         <label for="adminRole">
-          Role Assignment
+          Assigned System Role
           <select id="adminRole" name="adminRole" required aria-required="true">
-            <option value="adviser" selected>OJT Faculty Adviser</option>
             <option value="supervisor">Campus Department Supervisor</option>
+            <option value="adviser">OJT Faculty Adviser</option>
             <option value="student">OJT Student Trainee</option>
             <option value="admin">Portal Administrator</option>
           </select>
+        </label>
+        <label for="adminDept">
+          Designated Campus Department / College
+          <input type="text" id="adminDept" name="adminDept" value="${supervisors.find((s) => s.name === preselected)?.department || "Management Information Systems (MIS) / ICT Center"}" required aria-required="true" />
         </label>
       `;
     }
@@ -2089,6 +3598,30 @@
     if (el.modalDescription) el.modalDescription.textContent = desc;
     if (el.modalSubmitLabel) el.modalSubmitLabel.textContent = submitLabel;
     if (el.modalFields) el.modalFields.innerHTML = fieldsHtml;
+    el.modalForm.querySelector('button[type="submit"]')?.classList.toggle("hidden", modalType === "adviser-records");
+
+    if (modalType === "requirement") {
+      const requirementFile = document.getElementById("reqFile");
+      const submitRequirement = el.modalForm.querySelector('button[type="submit"]');
+      if (submitRequirement) {
+        submitRequirement.disabled = true;
+        submitRequirement.setAttribute("aria-disabled", "true");
+      }
+      const updateRequirementFileState = () => {
+        const hasFile = Boolean(requirementFile.files?.length);
+        const fileStatus = document.getElementById("reqFileStatus");
+        if (submitRequirement) {
+          submitRequirement.disabled = !hasFile;
+          submitRequirement.setAttribute("aria-disabled", String(!hasFile));
+        }
+        if (fileStatus) {
+          fileStatus.textContent = hasFile ? `Selected: ${requirementFile.files[0].name}` : "No document selected";
+          fileStatus.classList.toggle("has-file", hasFile);
+        }
+      };
+      requirementFile?.addEventListener("change", updateRequirementFileState);
+      requirementFile?.addEventListener("input", updateRequirementFileState);
+    }
 
     // Dynamic grade change preview for evaluation modal
     if (modalType === "evaluation") {
@@ -2098,6 +3631,49 @@
         evalInput.addEventListener("input", (e) => {
           gradeTitle.textContent = `Academic Equiv: ${getGradeEquivalence(e.target.value)}`;
         });
+      }
+    }
+
+    // Dynamic supervisor picker synchronization for assign-student modal
+    if (modalType === "assign-student") {
+      const supPicker = document.getElementById("assignSupervisorPicker");
+      const compSelect = document.getElementById("assignCompany");
+      const supNameInput = document.getElementById("assignSupervisor");
+      const supEmailInput = document.getElementById("assignSupervisorEmail");
+      const supervisors = state.practicumData.supervisors || [];
+      if (supPicker && compSelect && supNameInput && supEmailInput) {
+        const normalize = (value) => (value || "").trim().toLowerCase();
+        const matchesDepartment = (supervisorDepartment, selectedDepartment) => {
+          const supervisorValue = normalize(supervisorDepartment);
+          const selectedValue = normalize(selectedDepartment);
+          const supervisorParts = supervisorValue.split(/\s*\/\s*|\s*\([^)]*\)/).map((part) => part.trim()).filter((part) => part.length >= 3);
+          const selectedParts = selectedValue.split(/\s*\/\s*|\s*\([^)]*\)/).map((part) => part.trim()).filter((part) => part.length >= 3);
+
+          return supervisorValue && selectedValue && (supervisorValue === selectedValue || supervisorValue.includes(selectedValue) || selectedValue.includes(supervisorValue) || supervisorParts.some((part) => selectedValue.includes(part)) || selectedParts.some((part) => supervisorValue.includes(part)));
+        };
+        const updateSupervisors = () => {
+          const selectedDepartment = compSelect.value;
+          const matchingSupervisors = supervisors.filter((supervisor) => matchesDepartment(supervisor.department, selectedDepartment));
+
+          supPicker.innerHTML = matchingSupervisors.length
+            ? matchingSupervisors.map((sup) => `<option value="${escapeHtml(sup.name)}" data-email="${escapeHtml(sup.email || "")}" data-dept="${escapeHtml(sup.department || "")}">${escapeHtml(sup.name)} &mdash; ${escapeHtml(sup.department || "Supervisor")}</option>`).join("")
+            : '<option value="" disabled selected>No supervisor assigned to this department</option>';
+
+          const selectedSupervisor = matchingSupervisors[0];
+          supNameInput.value = selectedSupervisor?.name || "";
+          supEmailInput.value = selectedSupervisor?.email || "";
+        };
+
+        compSelect.addEventListener("change", updateSupervisors);
+        supPicker.addEventListener("change", (e) => {
+          const opt = e.target.options[e.target.selectedIndex];
+          if (opt) {
+            supNameInput.value = opt.value;
+            supEmailInput.value = opt.dataset.email || "";
+          }
+        });
+
+        updateSupervisors();
       }
     }
 
@@ -2184,7 +3760,7 @@
       }
     } else if (modalType === "task") {
       const studentInput = el.modalForm.querySelector('[name="taskStudent"]');
-      const student = studentInput ? studentInput.value : null;
+      const student = studentInput ? studentInput.value : (document.getElementById("taskStudentSelect") ? document.getElementById("taskStudentSelect").value : "");
       const title = document.getElementById("taskTitle").value;
       const due = document.getElementById("taskDue").value;
       const details = document.getElementById("taskDetails").value;
@@ -2209,70 +3785,106 @@
       }
     } else if (modalType === "requirement") {
       const requirement = document.getElementById("reqSelect").value;
-      const res = await apiRequest("/practicum/requirement", "POST", { requirement });
+      const file = document.getElementById("reqFile")?.files[0];
+      if (!file) {
+        showToast("Please select a PDF or image document before submitting.");
+        return;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        showToast("The document must be 25 MB or smaller.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("requirement", requirement);
+      formData.append("file", file);
+      const res = await apiRequest("/practicum/requirement", "POST", formData);
       if (res && res.success) {
+        await refreshBackendState();
+        closeModal();
+        state.lastRequirementSubmission = {
+          name: requirement,
+        };
+        renderCurrentView();
         showToast(res.message);
-      } else {
-        showToast(`Document '${requirement}' uploaded. Status: Pending Review.`);
+      } else if (res && (res.message || res.error)) {
+        showToast(res.message || res.error);
       }
     } else if (modalType === "evaluation") {
-      const student = el.modalForm.querySelector('input[name="evalStudent"]').value;
+      const studentInput = el.modalForm.querySelector('[name="evalStudent"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("evalStudentSelect") ? document.getElementById("evalStudentSelect").value : "");
       const rating = parseFloat(document.getElementById("evalRating").value);
       const comment = document.getElementById("evalComment").value;
 
       const res = await apiRequest("/practicum/evaluation", "POST", { student, rating, comment });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
         showToast(`Evaluation score ${rating}/100 saved for ${student}.`);
       }
     } else if (modalType === "feedback") {
-      const student = el.modalForm.querySelector('input[name="fbStudent"]').value;
+      const studentInput = el.modalForm.querySelector('[name="fbStudent"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("fbStudentSelect") ? document.getElementById("fbStudentSelect").value : "");
       const rating = parseFloat(document.getElementById("fbRating").value);
       const feedback = document.getElementById("fbNotes").value;
 
       const res = await apiRequest("/practicum/feedback", "POST", { student, rating, feedback });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
         showToast(`Feedback submitted for ${student}.`);
       }
     } else if (modalType === "review-attendance") {
-      const student = el.modalForm.querySelector('input[name="attStudent"]').value;
+      const studentInput = el.modalForm.querySelector('[name="attStudent"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("attStudentSelect") ? document.getElementById("attStudentSelect").value : "");
       const decision = document.getElementById("attDecision").value;
       const comments = document.getElementById("attReviewRemarks").value;
 
       const res = await apiRequest("/practicum/review-attendance", "POST", { student, decision, comments });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
         showToast(`Attendance verified for ${student}.`);
       }
     } else if (modalType === "review-journal") {
-      const student = el.modalForm.querySelector('input[name="journalStudent"]').value;
+      const studentInput = el.modalForm.querySelector('[name="journalStudent"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("journalStudentSelect") ? document.getElementById("journalStudentSelect").value : "");
       const decision = document.getElementById("journalDecision").value;
       const comments = document.getElementById("journalRemarks").value;
 
       const res = await apiRequest("/practicum/review-journal", "POST", { student, decision, comments });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
         showToast(`Journal marked as ${decision} for ${student}.`);
       }
     } else if (modalType === "review-requirement") {
-      const student = el.modalForm.querySelector('input[name="reqStudent"]').value;
-      const requirement = document.getElementById("reqTarget").value;
+      const studentInput = el.modalForm.querySelector('[name="reqStudent"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("reqStudentSelect") ? document.getElementById("reqStudentSelect").value : "");
+      const requirementInput = el.modalForm.querySelector('[name="reqTarget"]');
+      const requirement = requirementInput ? requirementInput.value : "";
       const decision = document.getElementById("reqDecision").value;
       const comments = document.getElementById("reqComments").value;
 
       const res = await apiRequest("/practicum/review-requirement", "POST", { student, requirement, decision, comments });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
         showToast(`Requirement clearance updated.`);
       }
     } else if (modalType === "review-report") {
-      const student = el.modalForm.querySelector('input[name="reportStudent"]').value;
+      const studentInput = el.modalForm.querySelector('[name="reportStudent"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("repStudentSelect") ? document.getElementById("repStudentSelect").value : "");
       const decision = document.getElementById("reportDecision").value;
       const comments = document.getElementById("reportComments").value;
 
@@ -2282,27 +3894,56 @@
       } else {
         showToast(`Accomplishment report reviewed.`);
       }
-    } else if (modalType === "placement") {
-      const organization = document.getElementById("appOrg").value;
-      const department = document.getElementById("appDept").value;
-      const supervisor = document.getElementById("appSupervisor").value;
-      const email = document.getElementById("appEmail").value;
+    } else if (modalType === "approve-student") {
+      const studentInput = el.modalForm.querySelector('[name="appStudentName"]');
+      const student = studentInput ? studentInput.value : (document.getElementById("appStudentSelect") ? document.getElementById("appStudentSelect").value : "");
+      const decision = document.getElementById("appDecision").value;
+      const notes = document.getElementById("appSupervisorNotes").value;
 
-      const res = await apiRequest("/practicum/application", "POST", { organization, department, supervisor, email });
+      const res = await apiRequest("/practicum/approve-student", "POST", { student, decision, notes });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
-        showToast("Placement information saved.");
+        showToast(`Student status updated to ${decision}.`);
+      }
+    } else if (modalType === "assign-student") {
+      const student = document.getElementById("assignStudent").value;
+      const company_name = document.getElementById("assignCompany").value;
+      const department = document.getElementById("assignDeptUnit").value;
+      const supervisor_name = document.getElementById("assignSupervisor").value;
+      const supervisor_email = document.getElementById("assignSupervisorEmail").value;
+      const notes = document.getElementById("assignNotes").value;
+
+      const res = await apiRequest("/practicum/assign-student", "POST", {
+        student,
+        company_name,
+        department,
+        supervisor_name,
+        supervisor_email,
+        notes,
+      });
+
+      if (res && res.success) {
+        showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
+      } else {
+        showToast("Student assigned to department successfully.");
       }
     } else if (modalType === "admin-user") {
       const name = document.getElementById("adminName").value;
       const role = document.getElementById("adminRole").value;
+      const department = document.getElementById("adminDept")?.value || "";
 
-      const res = await apiRequest("/practicum/admin/user", "POST", { name, role });
+      const res = await apiRequest("/practicum/admin/user", "POST", { name, role, department });
       if (res && res.success) {
         showToast(res.message);
+      } else if (res && res.error) {
+        showToast(res.error);
       } else {
-        showToast("User account created successfully.");
+        showToast("Role assigned successfully.");
       }
     }
 
@@ -2318,6 +3959,7 @@
   function showAuth() {
     if (el.portalContainer) el.portalContainer.classList.add("hidden");
     if (el.authContainer) el.authContainer.classList.remove("hidden");
+    showRecoveryStep("login");
   }
 
   function showPortal() {
@@ -2327,8 +3969,35 @@
     renderCurrentView();
   }
 
+  function openResetLink() {
+    if (state.currentUser) return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") !== "reset-password") return;
+
+    const email = params.get("email") || "";
+    const token = params.get("token") || "";
+    if (!email || !token) return;
+
+    const resetEmail = document.getElementById("resetEmail");
+    const resetToken = document.getElementById("resetToken");
+    if (resetEmail) resetEmail.value = email;
+    if (resetToken) resetToken.value = token;
+    showRecoveryStep("reset");
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   function switchAuthTab(targetTab) {
-    if (targetTab === "signup") {
+    showRecoveryStep("login");
+
+    const isSignup = targetTab === "signup";
+    if (el.authTabs) el.authTabs.classList.toggle("signup-selected", isSignup);
+    if (el.authContainer) {
+      el.authContainer.classList.remove("auth-switching-signin", "auth-switching-signup");
+      el.authContainer.classList.add(isSignup ? "auth-switching-signup" : "auth-switching-signin");
+    }
+
+    if (isSignup) {
       if (el.tabSignUp) {
         el.tabSignUp.classList.add("active");
         el.tabSignUp.setAttribute("aria-selected", "true");
@@ -2339,6 +4008,9 @@
       }
       if (el.registerCard) el.registerCard.classList.remove("hidden");
       if (el.loginCard) el.loginCard.classList.add("hidden");
+      el.registerCard?.classList.remove("auth-form-enter-left", "auth-form-enter-right");
+      void el.registerCard?.offsetWidth;
+      el.registerCard?.classList.add("auth-form-enter-right");
     } else {
       if (el.tabSignIn) {
         el.tabSignIn.classList.add("active");
@@ -2350,10 +4022,112 @@
       }
       if (el.loginCard) el.loginCard.classList.remove("hidden");
       if (el.registerCard) el.registerCard.classList.add("hidden");
+      el.loginCard?.classList.remove("auth-form-enter-left", "auth-form-enter-right");
+      void el.loginCard?.offsetWidth;
+      el.loginCard?.classList.add("auth-form-enter-left");
     }
 
     if (el.loginError) el.loginError.textContent = "";
     if (el.signUpError) el.signUpError.textContent = "";
+  }
+
+  function showRecoveryStep(step) {
+    const recoverySteps = {
+      forgot: el.forgotPasswordContainer,
+      otp: el.otpVerifyContainer,
+      reset: el.resetPasswordContainer,
+    };
+
+    const activeContainer = step === "login" ? el.loginCard : recoverySteps[step];
+    const entryClass = step === "login" ? "auth-recovery-enter-left" : "auth-recovery-enter-right";
+    [el.loginCard, el.registerCard, ...Object.values(recoverySteps)].forEach((container) => {
+      container?.classList.remove("auth-recovery-enter-left", "auth-recovery-enter-right");
+    });
+
+    if (activeContainer) {
+      void activeContainer.offsetWidth;
+      activeContainer.classList.add(entryClass);
+    }
+
+    if (el.loginCard) el.loginCard.classList.toggle("hidden", step !== "login");
+    if (el.registerCard) el.registerCard.classList.add("hidden");
+    if (el.authTabs) el.authTabs.classList.toggle("hidden", step !== "login");
+    Object.entries(recoverySteps).forEach(([name, container]) => {
+      if (container) container.classList.toggle("hidden", name !== step);
+    });
+    if (el.tabSignIn) {
+      el.tabSignIn.classList.add("active");
+      el.tabSignIn.setAttribute("aria-selected", "true");
+    }
+    if (el.tabSignUp) {
+      el.tabSignUp.classList.remove("active");
+      el.tabSignUp.setAttribute("aria-selected", "false");
+    }
+  }
+
+  async function handleForgotPassword(e) {
+    e.preventDefault();
+    const email = document.getElementById("forgotEmail")?.value.trim() || "";
+    if (el.forgotError) el.forgotError.textContent = "";
+    if (!email) {
+      if (el.forgotError) el.forgotError.textContent = "Please enter your registered email address.";
+      return;
+    }
+
+    const res = await apiRequest("/auth/forgot-password", "POST", { email });
+    if (res && res.success) {
+      document.getElementById("otpTargetEmail").value = res.email || email;
+      document.getElementById("otpRecipientEmail").textContent = res.email || email;
+      showRecoveryStep("otp");
+    } else if (el.forgotError) {
+      el.forgotError.textContent = res?.message || res?.error || "Unable to send the reset code.";
+    }
+  }
+
+  async function handleVerifyOtp(e) {
+    e.preventDefault();
+    const email = document.getElementById("otpTargetEmail")?.value || "";
+    const otp = document.getElementById("otpInput")?.value.trim() || "";
+    if (el.otpError) el.otpError.textContent = "";
+    if (!email || otp.length !== 6) {
+      if (el.otpError) el.otpError.textContent = "Please enter the 6-digit OTP code from your email.";
+      return;
+    }
+
+    const res = await apiRequest("/auth/verify-otp", "POST", { email, otp });
+    if (res && res.success) {
+      document.getElementById("resetEmail").value = res.email || email;
+      document.getElementById("resetToken").value = res.token || "";
+      document.getElementById("resetOtp").value = otp;
+      showRecoveryStep("reset");
+    } else if (el.otpError) {
+      el.otpError.textContent = res?.message || res?.error || "The OTP code could not be verified.";
+    }
+  }
+
+  async function handleResetPassword(e) {
+    e.preventDefault();
+    const email = document.getElementById("resetEmail")?.value || "";
+    const token = document.getElementById("resetToken")?.value || "";
+    const otp = document.getElementById("resetOtp")?.value || "";
+    const password = document.getElementById("newPassword")?.value || "";
+    const password_confirmation = document.getElementById("newPasswordConfirmation")?.value || "";
+    if (el.resetError) el.resetError.textContent = "";
+
+    const res = await apiRequest("/auth/reset-password", "POST", {
+      email,
+      token,
+      otp,
+      password,
+      password_confirmation,
+    });
+    if (res && res.success) {
+      showRecoveryStep("login");
+      if (el.loginError) el.loginError.textContent = "";
+      showToast(res.message || "Your password has been reset. You can now sign in.");
+    } else if (el.resetError) {
+      el.resetError.textContent = res?.message || res?.error || "Unable to reset your password.";
+    }
   }
 
   async function handleLogin(e) {
@@ -2452,33 +4226,44 @@
   // =========================================================================
 
   function setupPasswordToggles() {
-    if (el.toggleLoginPassword) {
-      el.toggleLoginPassword.addEventListener("click", () => {
-        const input = document.getElementById("loginPassword");
-        if (!input) return;
-        const isPw = input.type === "password";
-        input.type = isPw ? "text" : "password";
-        el.toggleLoginPassword.setAttribute("aria-pressed", isPw ? "true" : "false");
-        el.toggleLoginPassword.setAttribute("aria-label", isPw ? "Hide password" : "Show password");
+    function bindToggle(buttonId, inputId) {
+      const btn = document.getElementById(buttonId);
+      const input = document.getElementById(inputId);
+      if (!btn || !input) return;
+
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const isPw = input.getAttribute("type") === "password";
+        input.setAttribute("type", isPw ? "text" : "password");
+        btn.setAttribute("aria-pressed", isPw ? "true" : "false");
+        btn.setAttribute("aria-label", isPw ? "Hide password" : "Show password");
+
+        const eyeOpen = btn.querySelector(".eye-open");
+        const eyeClosed = btn.querySelector(".eye-closed");
+        if (eyeOpen && eyeClosed) {
+          if (isPw) {
+            eyeOpen.classList.add("hidden");
+            eyeClosed.classList.remove("hidden");
+          } else {
+            eyeOpen.classList.remove("hidden");
+            eyeClosed.classList.add("hidden");
+          }
+        }
       });
     }
 
-    if (el.toggleRegPassword) {
-      el.toggleRegPassword.addEventListener("click", () => {
-        const input = document.getElementById("regPassword");
-        if (!input) return;
-        const isPw = input.type === "password";
-        input.type = isPw ? "text" : "password";
-        el.toggleRegPassword.setAttribute("aria-pressed", isPw ? "true" : "false");
-        el.toggleRegPassword.setAttribute("aria-label", isPw ? "Hide password" : "Show password");
-      });
-    }
+    bindToggle("toggleLoginPassword", "loginPassword");
+    bindToggle("toggleRegPassword", "regPassword");
+    bindToggle("toggleRegConfirmPassword", "regConfirmPassword");
+    bindToggle("toggleNewPassword", "newPassword");
+    bindToggle("toggleNewPasswordConfirm", "newPasswordConfirmation");
   }
 
   function setupHelpModal() {
     if (el.forgotPasswordBtn) {
       el.forgotPasswordBtn.addEventListener("click", () => {
-        openModalDialog(el.helpModalBackdrop);
+        showRecoveryStep("forgot");
       });
     }
     if (el.helpModalClose) {
@@ -2498,6 +4283,67 @@
     }
   }
 
+  function setupRegistrationRoleWatcher() {
+    const roleSelect = document.getElementById("regRole");
+    const deptSelect = document.getElementById("regDept");
+    const deptLabelText = document.getElementById("regDeptLabelText");
+
+    if (!roleSelect || !deptSelect) return;
+
+    roleSelect.addEventListener("change", (e) => {
+      const role = e.target.value;
+      if (role === "student") {
+        if (deptLabelText) deptLabelText.textContent = "College Degree Program";
+        deptSelect.innerHTML = `
+          <option value="BS Information Technology">BS Information Technology</option>
+          <option value="BS Computer Science">BS Computer Science</option>
+          <option value="BS Business Administration">BS Business Administration</option>
+          <option value="BS Hospitality Management">BS Hospitality Management</option>
+          <option value="BS Industrial Technology">BS Industrial Technology</option>
+        `;
+      } else if (role === "supervisor") {
+        if (deptLabelText) deptLabelText.textContent = "Assigned Campus Host Department / Office";
+        deptSelect.innerHTML = `
+          <option value="Management Information Systems (MIS) / ICT Center">Management Information Systems (MIS) / ICT Center</option>
+          <option value="Office of the Campus Registrar">Office of the Campus Registrar</option>
+          <option value="Campus Library & Learning Resource Center">Campus Library & Learning Resource Center</option>
+          <option value="Office of the Campus Dean">Office of the Campus Dean</option>
+          <option value="Administrative & Finance Services">Administrative & Finance Services</option>
+          <option value="College of Computing Studies Laboratory">College of Computing Studies Laboratory</option>
+          <option value="Campus Clinic / Health Services">Campus Clinic / Health Services</option>
+        `;
+      } else if (role === "adviser") {
+        if (deptLabelText) deptLabelText.textContent = "Faculty College / Department";
+        deptSelect.innerHTML = `
+          <option value="College of Computing Studies">College of Computing Studies</option>
+          <option value="College of Business Management">College of Business Management</option>
+          <option value="College of Teacher Education">College of Teacher Education</option>
+          <option value="College of Hospitality and Tourism">College of Hospitality and Tourism</option>
+          <option value="College of Technology">College of Technology</option>
+        `;
+      }
+    });
+  }
+
+  function setupDemoAccountChips() {
+    document.querySelectorAll(".demo-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const user = chip.dataset.user;
+        const pass = chip.dataset.pass;
+        const usernameInput = document.getElementById("loginUsername");
+        const passwordInput = document.getElementById("loginPassword");
+        if (usernameInput && passwordInput) {
+          usernameInput.value = user;
+          passwordInput.value = pass;
+          // Auto-submit login for convenient testing
+          if (el.loginForm) {
+            el.loginForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+          }
+        }
+      });
+    });
+  }
+
   function setupEventListeners() {
     // Auth Tab Toggles & Links
     if (el.tabSignUp) el.tabSignUp.addEventListener("click", () => switchAuthTab("signup"));
@@ -2508,10 +4354,19 @@
     // Password Visibility & Help Modal
     setupPasswordToggles();
     setupHelpModal();
+    setupRegistrationRoleWatcher();
+    setupDemoAccountChips();
 
     // Forms
     if (el.loginForm) el.loginForm.addEventListener("submit", handleLogin);
     if (el.signUpForm) el.signUpForm.addEventListener("submit", handleRegister);
+    if (el.forgotPasswordForm) el.forgotPasswordForm.addEventListener("submit", handleForgotPassword);
+    if (el.otpVerifyForm) el.otpVerifyForm.addEventListener("submit", handleVerifyOtp);
+    if (el.resetPasswordForm) el.resetPasswordForm.addEventListener("submit", handleResetPassword);
+    if (el.forgotBackToLoginBtn) el.forgotBackToLoginBtn.addEventListener("click", () => showRecoveryStep("login"));
+    if (el.otpBackToForgotBtn) el.otpBackToForgotBtn.addEventListener("click", () => showRecoveryStep("forgot"));
+    if (el.resetBackToLoginBtn) el.resetBackToLoginBtn.addEventListener("click", () => showRecoveryStep("login"));
+    if (el.resendOtpBtn) el.resendOtpBtn.addEventListener("click", () => el.forgotPasswordForm?.requestSubmit());
     if (el.btnLogout) el.btnLogout.addEventListener("click", handleLogout);
     
     // Profile Modal Open Listeners
@@ -2533,8 +4388,18 @@
     // Sidebar toggle (mobile)
     if (el.btnSidebarToggle) {
       el.btnSidebarToggle.addEventListener("click", () => {
-        if (el.sidebar) el.sidebar.classList.toggle("open");
+        if (el.sidebar && el.sidebar.classList.contains("open")) {
+          closeMobileSidebar();
+        } else {
+          openMobileSidebar();
+        }
       });
+    }
+    if (el.sidebarCloseBtn) {
+      el.sidebarCloseBtn.addEventListener("click", closeMobileSidebar);
+    }
+    if (el.sidebarBackdrop) {
+      el.sidebarBackdrop.addEventListener("click", closeMobileSidebar);
     }
 
     // Modal close hooks
